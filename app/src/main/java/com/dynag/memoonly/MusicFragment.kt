@@ -22,7 +22,7 @@ import com.dynag.memoonly.databinding.FragmentMusicBinding
 import java.util.Locale
 
 /**
- * MemoOnly — music tab.
+ * MemOnly — music tab.
  *
  * Reads the title, artist, cover art and playback position of whatever the
  * phone is playing, through the system MediaSession, and mirrors them onto the
@@ -126,7 +126,7 @@ class MusicFragment : Fragment() {
 
         btnCopyLog.setOnClickListener {
             val clipboard = requireActivity().getSystemService(android.content.Context.CLIPBOARD_SERVICE) as ClipboardManager
-            clipboard.setPrimaryClip(ClipData.newPlainText("MemoOnly", statusText.text))
+            clipboard.setPrimaryClip(ClipData.newPlainText("MemOnly", statusText.text))
             appendStatus(getString(R.string.msg_log_copied))
         }
 

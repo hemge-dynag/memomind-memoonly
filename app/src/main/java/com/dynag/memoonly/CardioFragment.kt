@@ -25,7 +25,7 @@ import com.dynag.memoonly.databinding.FragmentCardioBinding
 import java.util.Locale
 
 /**
- * MemoOnly — workout tab.
+ * MemOnly — workout tab.
  *
  * Reads live heart rate from any Bluetooth LE source that exposes the standard
  * Heart Rate service (0x180D): chest straps (Polar H10, Garmin, Wahoo…) and
@@ -199,7 +199,7 @@ class CardioFragment : Fragment(),
         }
         btnCopyLog.setOnClickListener {
             val clipboard = requireActivity().getSystemService(android.content.Context.CLIPBOARD_SERVICE) as ClipboardManager
-            clipboard.setPrimaryClip(ClipData.newPlainText("MemoOnly log", statusText.text))
+            clipboard.setPrimaryClip(ClipData.newPlainText("MemOnly log", statusText.text))
             appendStatus(getString(R.string.msg_log_copied))
         }
     }

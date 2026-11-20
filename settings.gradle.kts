@@ -13,5 +13,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "MemoOnly"
+rootProject.name = "MemOnly"
 include(":app")

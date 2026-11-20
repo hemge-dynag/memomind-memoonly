@@ -24,7 +24,7 @@ import java.util.concurrent.atomic.AtomicInteger
 /**
  * Connects to the MemoMind glasses over Bluetooth LE and feeds the paired
  * glasses plugins over the GM plugin service (0x0F / 0x28), in one shared
- * connection for both apps of MemoOnly:
+ * connection for both apps of MemOnly:
  *
  *  - the **cardio plugin** protocol (channel 0x4344 down / 0x4355 up), which
  *    draws the big BPM, zone and trend itself and signals readiness with an

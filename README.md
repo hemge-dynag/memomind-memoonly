@@ -1,6 +1,6 @@
-# MemoOnly
+# MemOnly
 
-MemoOnly is the MemoMind companion Android app that puts the phone's workout and
+MemOnly is the MemoMind companion Android app that puts the phone's workout and
 music onto the smart glasses HUD over Bluetooth LE. It replaces the separate
 Cardio and Music apps with one APK and two tabs.
 

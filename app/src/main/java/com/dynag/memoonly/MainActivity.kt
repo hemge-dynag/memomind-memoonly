@@ -6,7 +6,7 @@ import androidx.fragment.app.Fragment
 import com.google.android.material.bottomnavigation.BottomNavigationView
 
 /**
- * MemoOnly — one app, two tabs.
+ * MemOnly — one app, two tabs.
  *
  * The workout tab mirrors heart rate and GPS metrics onto the glasses through
  * the cardio plugin, the music tab mirrors the phone's now-playing session
