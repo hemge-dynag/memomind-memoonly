@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources xmlns:tools="http://schemas.android.com/tools">
-    <style name="Theme.MemoMindCardio" parent="Theme.Material3.Dark.NoActionBar">
+    <style name="Theme.MemoOnly" parent="Theme.Material3.Dark.NoActionBar">
         <item name="colorPrimary">@color/accent</item>
         <item name="colorOnPrimary">@color/on_accent</item>
         <item name="colorSecondary">@color/accent</item>
@@ -10,6 +10,10 @@
         <item name="android:statusBarColor">@color/bg</item>
         <item name="android:navigationBarColor">@color/bg</item>
         <item name="android:windowLightStatusBar">false</item>
+    </style>
+
+    <style name="MemoNavIndicator" parent="">
+        <item name="android:color">@color/accent_soft</item>
     </style>
 
     <style name="BpmNumber">

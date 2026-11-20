@@ -1,4 +1,4 @@
-package com.dynag.cardio
+package com.dynag.memoonly
 
 import android.annotation.SuppressLint
 import android.content.Context

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">MemoMind Cardio</string>
+    <string name="app_name">MemoOnly</string>
 
     <string name="bpm_unit">BPM</string>
     <string name="bpm_placeholder">--</string>
@@ -37,6 +37,7 @@
 
     <string name="status_glasses_idle">Lunettes : non connectées</string>
     <string name="status_track_idle">Suivi : arrêté</string>
+    <string name="status_glasses_connected">Lunettes : connectées</string>
 
     <string name="dialog_choose_sensor">Choisir la source cardiaque</string>
     <string name="dialog_choose_glasses">Quel appareil est celui des lunettes ?</string>
@@ -49,14 +50,14 @@
     <string name="msg_sensor_disconnected">Capteur cardiaque déconnecté.</string>
     <string name="msg_first_beat">Première mesure de fréquence reçue.</string>
     <string name="msg_log_copied">Journal copié dans le presse-papiers.</string>
-    <string name="msg_glasses_ready">Lunettes prêtes. Envoi en direct activé.</string>
+    <string name="msg_glasses_ready">Lunettes prêtes.</string>
     <string name="msg_cardio_ready">Plugin cardio des lunettes prêt. Affichage sur le HUD.</string>
     <string name="msg_forgot_sensor">Capteur enregistré oublié. Nouvelle recherche…</string>
     <string name="msg_track_started">Suivi démarré : GPS et lunettes continuent écran éteint.</string>
     <string name="msg_track_started_other">Suivi démarré : BPM et temps sur les lunettes, écran éteint.</string>
     <string name="msg_track_stopped">Suivi arrêté.</string>
     <string name="msg_start_track_first">Démarrez le suivi pour connecter les lunettes.</string>
-    <string name="msg_battery_hint">Autorisez MemoMind Cardio à ignorer l\'optimisation de batterie pour un GPS fiable écran éteint.</string>
+    <string name="msg_battery_hint">Autorisez MemoOnly à ignorer l\'optimisation de batterie pour un GPS fiable écran éteint.</string>
     <string name="notif_channel">Suivi d\'entraînement</string>
     <string name="notif_stop">Arrêter</string>
 
@@ -64,4 +65,25 @@
     <string name="saved_sensor_missing">Capteur enregistré introuvable ; recherche d\'un nouveau capteur.</string>
     <string name="saved_sensor_unreachable">Capteur enregistré injoignable ; recherche d\'un nouveau capteur.</string>
     <string name="reconnecting_saved">Capteur enregistré injoignable ; nouvelle recherche.</string>
+
+    <!-- Tabs -->
+    <string name="tab_cardio">Cardio</string>
+    <string name="tab_music">Musique</string>
+
+    <!-- Music tab -->
+    <string name="now_playing">En lecture</string>
+    <string name="nothing_playing">Aucune lecture</string>
+    <string name="title_placeholder">Titre</string>
+    <string name="artist_placeholder">Artiste</string>
+    <string name="album_placeholder">Album</string>
+    <string name="btn_access">Autoriser l\'accès aux notifications</string>
+    <string name="btn_access_ok">Accès notifications accordé</string>
+    <string name="btn_mirror">Démarrer le miroir</string>
+    <string name="btn_mirror_stop">Arrêter le miroir</string>
+    <string name="status_mirror_idle">Miroir : arrêté</string>
+    <string name="msg_access_required">Autorisez l\'accès aux notifications pour lire la musique en cours.</string>
+    <string name="msg_no_music">Aucune musique en cours. Lancez la lecture puis revenez.</string>
+    <string name="msg_mirror_started">Miroir démarré : la pochette et le titre suivent la musique, écran éteint.</string>
+    <string name="msg_mirror_stopped">Miroir arrêté.</string>
+    <string name="msg_start_mirror_first">Démarrez le miroir pour connecter les lunettes.</string>
 </resources>

@@ -1,8 +1,9 @@
-package com.dynag.cardio
+package com.dynag.memoonly
 
 /**
  * Encoder for the MemoMind GM (Glass Messaging) packet framing, plus the
- * Web Bridge application-message envelope used to draw text on the glasses HUD.
+ * application-message envelope used to feed the paired glasses plugins
+ * (cardio and music).
  *
  * Reference: GlassSDK/docs/PROTOCOL.md (GM packet framing, Plugin application
  * service 0x0F) and GlassSDK/docs/HUD_PROTOCOL.md (application-message envelope).
@@ -18,13 +19,18 @@ package com.dynag.cardio
  *
  * TLV layout: one type byte, three-byte big-endian value length, then the value.
  *
- * The Web Bridge downlink for the glasses is:
+ * The downlink for the glasses is:
  *   service 0x0F, command 0x28
  *   TLV1 INT16 (0x07) = application channel
  *   TLV2 BYTES (0x01) = application payload
  *
- * The same envelope carries the paired cardio protocol on channel 0x4344:
- * `version, command, …` (see `cardio.c` / `protocol.js`).
+ * The same envelope carries both paired plugin protocols:
+ *   cardio (GlassSDK/examples/cardio/cardio.c, PhoneSDK/examples/cardio/protocol.js)
+ *     CH_CARDIO_DOWN 0x4344  phone -> glasses, CH_CARDIO_UP 0x4355 glasses -> phone
+ *   music (GlassSDK/examples/music/music.c)
+ *     TRACK 0x4D55  phone -> glasses, metadata / progress
+ *     COVER 0x4D54  phone -> glasses, one LZ4-compressed GRAY_4 cover block
+ *     EVENT 0x4D56  glasses -> phone, button requests (play/pause)
  *
  * Example wire vectors are validated against GlassSDK/docs/WIRE_EXAMPLES.md.
  */
@@ -33,6 +39,7 @@ object GmFrame {
     const val FRAME_HEAD_FIRST: Int = 0xFA
     const val SERVICE_PLUGIN: Int = 0x0F
     const val COMMAND_DELIVER: Int = 0x28
+    const val COMMAND_EVENT: Int = 0x29
 
     // TLV types
     const val TLV_BYTES: Int = 0x01
@@ -43,14 +50,6 @@ object GmFrame {
     const val TLV_INT16: Int = 0x07
     const val TLV_INT8: Int = 0x08
 
-    // Web Bridge application channels
-    const val CH_CLEAR: Int = 1
-    const val CH_TEXT: Int = 2
-    const val CH_RECT: Int = 3
-    const val CH_DELETE: Int = 4
-    const val CH_LINE: Int = 5
-    const val CH_BITMAP: Int = 6
-
     // Paired cardio plugin channels (GlassSDK/examples/cardio/cardio.c and
     // PhoneSDK/examples/cardio/protocol.js). 'CD' phone -> glasses, 'CU' back.
     const val CH_CARDIO_DOWN: Int = 0x4344
@@ -58,6 +57,29 @@ object GmFrame {
 
     /** TRACKING flag: the sport has no pace, so the HUD only shows the timer. */
     const val TRACKING_NO_SPEED: Int = 0x02
+
+    // ---------------------------------------------------------------------
+    // Music plugin channels and constants (GlassSDK/examples/music/music.c)
+    // ---------------------------------------------------------------------
+
+    const val CH_TRACK: Int = 0x4D55
+    const val CH_COVER: Int = 0x4D54
+    const val CH_EVENT: Int = 0x4D56
+
+    const val PROTOCOL_VERSION: Int = 1
+
+    const val TRACK_CMD_IDLE: Int = 0
+    const val TRACK_CMD_META: Int = 1
+    const val TRACK_CMD_PROGRESS: Int = 2
+
+    const val EVENT_TOGGLE: Int = 1
+
+    /** Max cover edge the glasses plugin accepts. */
+    const val COVER_MAX = 240
+
+    // ---------------------------------------------------------------------
+    // Framing
+    // ---------------------------------------------------------------------
 
     /**
      * Encode a single TLV (type + 24-bit big-endian length + value).
@@ -167,81 +189,7 @@ object GmFrame {
     }
 
     // ---------------------------------------------------------------------
-    // Web Bridge application payloads (channel bytes)
-    // ---------------------------------------------------------------------
-
-    /** Channel 1 clear: one compatibility byte. */
-    fun clearPayload(): ByteArray = byteArrayOf(0x00)
-
-    /**
-     * Channel 2 text.
-     * Layout: id:u8 x:u16 y:u16 width:u16 height:u16 border:u8 radius:u8 utf8...
-     * All multi-byte integers big-endian.
-     */
-    fun textPayload(
-        id: Int,
-        x: Int,
-        y: Int,
-        width: Int,
-        height: Int,
-        border: Int,
-        radius: Int,
-        text: String
-    ): ByteArray {
-        val utf8 = text.toByteArray(Charsets.UTF_8)
-        val out = ByteArray(11 + utf8.size)
-        out[0] = (id and 0xFF).toByte()
-        putU16(out, 1, x)
-        putU16(out, 3, y)
-        putU16(out, 5, width)
-        putU16(out, 7, height)
-        out[9] = (border and 0xFF).toByte()
-        out[10] = (radius and 0xFF).toByte()
-        System.arraycopy(utf8, 0, out, 11, utf8.size)
-        return out
-    }
-
-    /** Channel 4 delete: object id. */
-    fun deletePayload(id: Int): ByteArray = byteArrayOf((id and 0xFF).toByte())
-
-    private fun putU16(dst: ByteArray, at: Int, v: Int) {
-        dst[at] = ((v ushr 8) and 0xFF).toByte()
-        dst[at + 1] = (v and 0xFF).toByte()
-    }
-
-    // ---------------------------------------------------------------------
-    // High-level helpers for the Web Bridge text channel
-    // ---------------------------------------------------------------------
-
-    /**
-     * Build a complete GM frame that draws [text] as object [id] on the glasses,
-     * via the Web Bridge text channel (service 0x0F, command 0x28, channel 2).
-     */
-    fun webBridgeText(
-        eventId: Int,
-        id: Int,
-        x: Int,
-        y: Int,
-        width: Int,
-        height: Int,
-        border: Int,
-        radius: Int,
-        text: String,
-        maxFrameBytes: Int = 512
-    ): List<ByteArray> {
-        val payload = textPayload(id, x, y, width, height, border, radius, text)
-        val body = tlvInt16(TLV_INT16, CH_TEXT) + tlv(TLV_BYTES, payload)
-        return fragment(eventId, SERVICE_PLUGIN, COMMAND_DELIVER, body, maxFrameBytes)
-    }
-
-    /** Build a complete GM frame that clears the Web Bridge scene (channel 1). */
-    fun webBridgeClear(eventId: Int): ByteArray {
-        val body = tlvInt16(TLV_INT16, CH_CLEAR) + tlv(TLV_BYTES, clearPayload())
-        return singleFrame(eventId, SERVICE_PLUGIN, COMMAND_DELIVER, body)
-    }
-
-    // ---------------------------------------------------------------------
-    // Paired cardio plugin (service 0x0F, command 0x28, channel 0x4344)
+    // Paired plugin delivery (service 0x0F, command 0x28)
     // ---------------------------------------------------------------------
 
     /** Deliver an application payload to the running glasses plugin on [channel]. */
@@ -254,6 +202,17 @@ object GmFrame {
         val body = tlvInt16(TLV_INT16, channel) + tlv(TLV_BYTES, payload)
         return fragment(eventId, SERVICE_PLUGIN, COMMAND_DELIVER, body, maxFrameBytes)
     }
+
+    private fun putU32(dst: ByteArray, at: Int, v: Int) {
+        dst[at] = ((v ushr 24) and 0xFF).toByte()
+        dst[at + 1] = ((v ushr 16) and 0xFF).toByte()
+        dst[at + 2] = ((v ushr 8) and 0xFF).toByte()
+        dst[at + 3] = (v and 0xFF).toByte()
+    }
+
+    // ---------------------------------------------------------------------
+    // Cardio protocol payloads (matching cardio.c)
+    // ---------------------------------------------------------------------
 
     /**
      * Cardio protocol version 1, command HEART_RATE (1).
@@ -275,7 +234,7 @@ object GmFrame {
         )
     }
 
-    /** Payload: `version, 2 STATUS, state` (state 0 idle … 4 error). */
+    /** Payload: `version, 2 STATUS, state` (state 0 idle ... 4 error). */
     fun cardioStatus(state: Int): ByteArray =
         byteArrayOf(1, 2, (state and 0xFF).toByte())
 
@@ -336,5 +295,74 @@ object GmFrame {
         if (bpm < resting + reserve * 50 / 100) return 2
         if (bpm < resting + reserve * 70 / 100) return 3
         return 4
+    }
+
+    // ---------------------------------------------------------------------
+    // Music protocol payloads (big-endian, matching music.c)
+    // ---------------------------------------------------------------------
+
+    /** TRACK IDLE: tell the glasses nothing is playing. */
+    fun trackIdle(): ByteArray = byteArrayOf(PROTOCOL_VERSION.toByte(), TRACK_CMD_IDLE.toByte())
+
+    /**
+     * TRACK META:
+     *   [ver][cmd][trackId:u32][durationMs:u32][positionMs:u32][playing:u8]
+     *     [titleLen:u8][artistLen:u8][title utf8][artist utf8]
+     * Lengths are byte counts after UTF-8 encoding; the glasses clamp them.
+     */
+    fun trackMeta(
+        trackId: Int,
+        durationMs: Long,
+        positionMs: Long,
+        playing: Boolean,
+        title: String,
+        artist: String
+    ): ByteArray {
+        val titleBytes = title.toByteArray(Charsets.UTF_8)
+        val artistBytes = artist.toByteArray(Charsets.UTF_8)
+        val tLen = minOf(titleBytes.size, 255)
+        val aLen = minOf(artistBytes.size, 255)
+        val out = ByteArray(18 + tLen + aLen)
+        out[0] = PROTOCOL_VERSION.toByte()
+        out[1] = TRACK_CMD_META.toByte()
+        putU32(out, 2, trackId)
+        putU32(out, 6, durationMs.coerceIn(0L, 0xFFFFFFFFL).toInt())
+        putU32(out, 10, positionMs.coerceIn(0L, 0xFFFFFFFFL).toInt())
+        out[14] = if (playing) 1 else 0
+        out[15] = tLen.toByte()
+        System.arraycopy(titleBytes, 0, out, 16, tLen)
+        out[17 + tLen] = aLen.toByte()
+        System.arraycopy(artistBytes, 0, out, 18 + tLen, aLen)
+        return out
+    }
+
+    /** TRACK PROGRESS: [ver][cmd][trackId:u32][positionMs:u32][playing:u8]. */
+    fun trackProgress(trackId: Int, positionMs: Long, playing: Boolean): ByteArray {
+        val out = ByteArray(11)
+        out[0] = PROTOCOL_VERSION.toByte()
+        out[1] = TRACK_CMD_PROGRESS.toByte()
+        putU32(out, 2, trackId)
+        putU32(out, 6, positionMs.coerceIn(0L, 0xFFFFFFFFL).toInt())
+        out[10] = if (playing) 1 else 0
+        return out
+    }
+
+    /**
+     * COVER payload: [ver][w:u16][h:u16][decoded:u32] followed by a single raw
+     * LZ4 block of GRAY_4 nibbles (row-major, high nibble = even x). The
+     * decoded byte count is ((w+1)/2)*h.
+     */
+    fun coverPayload(width: Int, height: Int, lz4Block: ByteArray): ByteArray {
+        val stride = (width + 1) / 2
+        val decoded = stride * height
+        val out = ByteArray(9 + lz4Block.size)
+        out[0] = PROTOCOL_VERSION.toByte()
+        out[1] = ((width ushr 8) and 0xFF).toByte()
+        out[2] = (width and 0xFF).toByte()
+        out[3] = ((height ushr 8) and 0xFF).toByte()
+        out[4] = (height and 0xFF).toByte()
+        putU32(out, 5, decoded)
+        System.arraycopy(lz4Block, 0, out, 9, lz4Block.size)
+        return out
     }
 }

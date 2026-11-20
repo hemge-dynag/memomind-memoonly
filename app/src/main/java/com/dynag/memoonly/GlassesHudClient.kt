@@ -1,4 +1,4 @@
-package com.dynag.cardio
+package com.dynag.memoonly
 
 import android.annotation.SuppressLint
 import android.bluetooth.BluetoothAdapter
@@ -22,14 +22,16 @@ import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
- * Connects to the MemoMind glasses over Bluetooth LE and sends display data to
- * the HUD, through two independent channels:
+ * Connects to the MemoMind glasses over Bluetooth LE and feeds the paired
+ * glasses plugins over the GM plugin service (0x0F / 0x28), in one shared
+ * connection for both apps of MemoOnly:
  *
- *  - the Web Bridge text channel (service 0x0F / command 0x28 / channel 2),
- *    rendered by whatever Web Bridge plugin is running;
- *  - the paired **cardio plugin** protocol (same envelope, channel 0x4344),
- *    which draws the big BPM, zone and 30 s trend itself. The plugin signals
- *    readiness with an `EVENT_READY` byte on channel 0x4355.
+ *  - the **cardio plugin** protocol (channel 0x4344 down / 0x4355 up), which
+ *    draws the big BPM, zone and trend itself and signals readiness with an
+ *    `EVENT_READY` byte on the up channel;
+ *  - the **music plugin** protocol (TRACK 0x4D55, COVER 0x4D54 down, EVENT
+ *    0x4D56 up), which draws the artwork, title, artist and progress bar and
+ *    reports button presses back as a play/pause toggle request.
  *
  * Transport: GM command service. The command downlink characteristic is
  * 00002021-...  (Write / Write Without Response) and the response/event uplink
@@ -53,6 +55,12 @@ class GlassesHudClient(
         /** The paired cardio plugin on the glasses announced EVENT_READY. */
         fun onCardioReady()
 
+        /** The paired music plugin on the glasses answered a delivery. */
+        fun onMusicReady()
+
+        /** The glasses button asked for a play/pause toggle. */
+        fun onToggleRequest()
+
         /**
          * The glasses could not be identified automatically. [devices] is a
          * list of (address, name) pairs — the phone's bonded devices first,
@@ -65,12 +73,6 @@ class GlassesHudClient(
     private val tag = "GlassesHudClient"
 
     companion object {
-        private const val OBJECT_HR = 1
-        private const val OBJECT_METRICS = 2
-        private const val OBJECT_TIME = 3
-        // Object 4 is the plugin-probe line, kept apart from the workout rows.
-        private const val OBJECT_PROBE = 4
-
         // cardio plugin status (see protocol.js STATE_*)
         private const val STATE_IDLE = 0
         private const val STATE_CONNECTING = 1
@@ -80,6 +82,7 @@ class GlassesHudClient(
 
         // Minimum spacing between two BPM payloads towards the glasses.
         private const val CARDIO_PUSH_INTERVAL_MS = 250L
+        private const val TRACK_PUSH_INTERVAL_MS = 250L
         // Give up when nothing answers a link attempt, and try the next device.
         private const val SCAN_TIMEOUT_MS = 12000L
         // Legacy alias the firmware may advertise instead of the Bluetooth-base
@@ -100,8 +103,7 @@ class GlassesHudClient(
         // SPP frames may use the firmware ceiling of 512 bytes.
         private const val SPP_MAX_FRAME_BYTES = 512
         private const val SPP_CONNECT_TIMEOUT_MS = 12000
-        // How long we wait for the cardio plugin's EVENT_READY before falling
-        // back to the Web Bridge text channel.
+        // How long we wait for a running glasses plugin to announce readiness.
         private const val PLUGIN_WAIT_MS = 6000L
     }
 
@@ -110,6 +112,11 @@ class GlassesHudClient(
     /** Set once the running glasses plugin has announced EVENT_READY. */
     @Volatile
     var cardioReady: Boolean = false
+        private set
+
+    /** Set once the running glasses music plugin has answered. */
+    @Volatile
+    var musicReady: Boolean = false
         private set
 
     private val handler = android.os.Handler(android.os.Looper.getMainLooper())
@@ -121,6 +128,15 @@ class GlassesHudClient(
         val payload = cardioPending ?: return@Runnable
         cardioPending = null
         sendCardioPayload(payload)
+    }
+
+    private var trackSentAt = 0L
+    private var trackPending: ByteArray? = null
+
+    private val trackFlush = Runnable {
+        val payload = trackPending ?: return@Runnable
+        trackPending = null
+        sendTrackPayload(payload)
     }
 
     // Conventional Bluetooth-base UUIDs; the firmware may expose a legacy alias,
@@ -147,12 +163,8 @@ class GlassesHudClient(
     private var linkCandidate = -1
     /** Set once the current GATT reached STATE_CONNECTED. */
     private var linkUp = false
-    /** True once we gave up on the cardio plugin and draw with Web Bridge. */
-    @Volatile
-    private var textFallback = false
     private var framesSent = 0
     private var uplinksSeen = 0
-    private var bridgeAcked = false
     /** Live Classic SPP link, when the glasses are reached over RFCOMM. */
     private var spp: BluetoothSocket? = null
     private var sppOut: OutputStream? = null
@@ -394,36 +406,23 @@ class GlassesHudClient(
     }
 
     /**
-     * The cardio plugin usually announces EVENT_READY a moment after the link
-     * comes up. If it never does, say so and draw through the Web Bridge text
-     * channel instead, so the HUD is not left blank without explanation.
+     * Neither paired plugin announces itself until it has received something,
+     * so once the link is up we say plainly that no plugin answered instead of
+     * leaving the HUD blank without explanation.
      */
     private fun armPluginWait() {
         handler.removeCallbacks(pluginWait)
         pluginWaitAt = 0L
-        if (!textFallback) handler.postDelayed(pluginWait, PLUGIN_WAIT_MS)
+        handler.postDelayed(pluginWait, PLUGIN_WAIT_MS)
     }
 
     private var pluginWaitAt = 0L
     private val pluginWait = Runnable {
-        if (cardioReady || !ready) return@Runnable
-        textFallback = true
+        if (cardioReady || musicReady || !ready) return@Runnable
         listener.onGlassesStatus(
-            "Aucun plugin cardio n'a répondu ; test du canal texte Web Bridge."
+            "Aucun plugin (cardio/musique) n'a répondu. " +
+                "Trames envoyées : $framesSent, remontées reçues : $uplinksSeen."
         )
-        listener.onGlassesStatus("Trames envoyées : $framesSent, remontées reçues : $uplinksSeen.")
-        GmFrame.webBridgeText(
-            eventId = nextEventId(),
-            id = OBJECT_PROBE,
-            x = 20,
-            y = 250,
-            width = 560,
-            height = 60,
-            border = 0,
-            radius = 0,
-            text = "HUD check",
-            maxFrameBytes = maxFrameForMtu()
-        ).forEach { enqueue(it) }
     }
 
     /** SPP is up: this is a confirmed glasses link, start the heartbeat. */
@@ -446,6 +445,7 @@ class GlassesHudClient(
         linkUp = true
         ready = true
         cardioReady = false
+        musicReady = false
         lastCardioBpm = 0
         mtu = SPP_MAX_FRAME_BYTES
         val addr = runCatching { device.address }.getOrNull()
@@ -516,8 +516,11 @@ class GlassesHudClient(
         sppOut = null
         ready = false
         cardioReady = false
+        musicReady = false
         cardioPending = null
+        trackPending = null
         handler.removeCallbacks(cardioFlush)
+        handler.removeCallbacks(trackFlush)
         // A saved address that fails later is kept: the glasses may simply be
         // out of range, and re-picking them on every start would be noise.
         listener.onGlassesStatus("Liaison des lunettes perdue.")
@@ -693,8 +696,11 @@ class GlassesHudClient(
                 BluetoothProfile.STATE_DISCONNECTED -> {
                     ready = false
                     cardioReady = false
+                    musicReady = false
                     cardioPending = null
+                    trackPending = null
                     handler.removeCallbacks(cardioFlush)
+                    handler.removeCallbacks(trackFlush)
                     g.close()
                     gatt = null
                     val failed = status != BluetoothGatt.GATT_SUCCESS && !linkUp
@@ -889,19 +895,23 @@ class GlassesHudClient(
         }
 
         val payload = data ?: return
-        if (channel != GmFrame.CH_CARDIO_UP && !bridgeAcked) {
-            // Command 0x29 with a non-cardio channel is the Web Bridge plugin
-            // answering a delivery: text drawing is possible on this device.
-            bridgeAcked = true
-            val hex = payload.take(16).joinToString("") { "%02x".format(it) }
-            listener.onGlassesStatus("Web Bridge answered (ch=0x%04x data=$hex).".format(channel))
-        }
         if (channel == GmFrame.CH_CARDIO_UP && payload.size >= 2 && payload[1].toInt() == 1) {
             if (!cardioReady) {
                 cardioReady = true
                 lastCardioBpm = 0
                 listener.onGlassesStatus("Plugin cardio des lunettes prêt.")
                 listener.onCardioReady()
+            }
+            return
+        }
+        if (channel == GmFrame.CH_EVENT && payload.size >= 2) {
+            if ((payload[1].toInt() and 0xFF) == GmFrame.EVENT_TOGGLE) {
+                listener.onToggleRequest()
+            }
+            if (!musicReady) {
+                musicReady = true
+                listener.onGlassesStatus("Plugin musique des lunettes prêt.")
+                listener.onMusicReady()
             }
             return
         }
@@ -932,47 +942,13 @@ class GlassesHudClient(
         contactBad: Boolean,
         trendBpm: Int
     ) {
-        if (!cardioReady) {
-            // Without the paired plugin, Web Bridge text is the only path: draw
-            // one HR object per [CARDIO_PUSH_INTERVAL_MS], newest value wins.
-            if (textFallback && ready) scheduleTextReading(bpm)
-            return
-        }
+        if (!cardioReady) return
         val zone = GmFrame.cardioZone(bpm, restingBpm, maxBpm)
         // The glasses ignore the trend byte; sending the last value keeps the
         // wire identical to PhoneSDK/examples/cardio/protocol.js.
         val trend = if (lastCardioBpm > 0) lastCardioBpm else bpm
         lastCardioBpm = bpm
         sendCardioPayload(GmFrame.cardioHeartRate(bpm, zone, contactBad, trend))
-    }
-
-    private var pendingTextBpm = 0
-    private var textSentAt = 0L
-
-    /**
-     * Text fallback is throttled like the plugin payload: a sensor can fire
-     * several times per second and the HUD only needs the newest value.
-     */
-    private fun scheduleTextReading(bpm: Int) {
-        val now = android.os.SystemClock.elapsedRealtime()
-        if (now - textSentAt >= CARDIO_PUSH_INTERVAL_MS) {
-            textSentAt = now
-            lastCardioBpm = bpm
-            sendText(OBJECT_HR, "$bpm BPM")
-            return
-        }
-        pendingTextBpm = bpm
-        handler.removeCallbacks(textFlush)
-        handler.postDelayed(textFlush, CARDIO_PUSH_INTERVAL_MS)
-    }
-
-    private val textFlush = Runnable {
-        val bpm = pendingTextBpm
-        if (bpm <= 0 || !textFallback) return@Runnable
-        pendingTextBpm = 0
-        textSentAt = android.os.SystemClock.elapsedRealtime()
-        lastCardioBpm = bpm
-        sendText(OBJECT_HR, "$bpm BPM")
     }
 
     /** Report the sensor state (see protocol.js STATE_*). */
@@ -998,11 +974,62 @@ class GlassesHudClient(
         )
     }
 
-    /** True once the plugin missed its greeting and text drawing took over. */
-    val usingTextFallback: Boolean get() = textFallback
+    // ---- Paired music plugin -------------------------------------------
 
-    /** True when a Web Bridge delivery ACK came back for one of our frames. */
-    val webBridgeAlive: Boolean get() = bridgeAcked
+    /**
+     * Push a track payload to the glasses over [GmFrame.CH_TRACK], throttled so
+     * rapid progress updates never flood the link. Progress frames coalesce:
+     * only the latest one is kept while a flush is pending.
+     */
+    @Synchronized
+    fun sendTrackPayload(payload: ByteArray) {
+        if (!ready || !musicReady) return
+        val now = System.currentTimeMillis()
+        val elapsed = now - trackSentAt
+        if (elapsed < TRACK_PUSH_INTERVAL_MS && trackPending != null) {
+            trackPending = payload
+            return
+        }
+        if (elapsed < TRACK_PUSH_INTERVAL_MS) {
+            trackPending = payload
+            handler.removeCallbacks(trackFlush)
+            handler.postDelayed(trackFlush, TRACK_PUSH_INTERVAL_MS - elapsed)
+            return
+        }
+        trackPending = null
+        trackSentAt = now
+        sendNow(GmFrame.CH_TRACK, payload)
+    }
+
+    /** Send a TRACK payload immediately, bypassing the throttle. */
+    @Synchronized
+    fun sendTrackNow(payload: ByteArray) {
+        if (!ready) return
+        trackPending = null
+        handler.removeCallbacks(trackFlush)
+        trackSentAt = System.currentTimeMillis()
+        sendNow(GmFrame.CH_TRACK, payload)
+    }
+
+    /** Send a COVER payload immediately, bypassing the track throttle. */
+    fun sendCoverPayload(payload: ByteArray) {
+        if (!ready) return
+        sendNow(GmFrame.CH_COVER, payload)
+    }
+
+    /** Tell the glasses nothing is playing. */
+    fun sendIdle() {
+        sendTrackNow(GmFrame.trackIdle())
+    }
+
+    private fun sendNow(channel: Int, payload: ByteArray) {
+        GmFrame.pluginMessage(
+            eventId = nextEventId(),
+            channel = channel,
+            payload = payload,
+            maxFrameBytes = maxFrameForMtu()
+        ).forEach { enqueue(it) }
+    }
 
     private fun sendCardioPayload(payload: ByteArray) {
         if (!cardioReady) return
@@ -1022,97 +1049,6 @@ class GlassesHudClient(
         ).forEach { enqueue(it) }
     }
 
-    /**
-     * Send a logical Web Bridge text update for the given [bpm].
-     * Produces GM frames via [GmFrame.webBridgeText] and enqueues them in order.
-     */
-    fun showHeartRate(bpm: Int) {
-        val text = "$bpm BPM"
-        val frames = GmFrame.webBridgeText(
-            eventId = nextEventId(),
-            id = OBJECT_HR,
-            x = 40,
-            y = 40,
-            width = 560,
-            height = 120,
-            border = 0,
-            radius = 0,
-            text = text,
-            maxFrameBytes = maxFrameForMtu()
-        )
-        frames.forEach { enqueue(it) }
-    }
-
-    /**
-     * Push the full workout line-up to the HUD:
-     *   object 1 — heart rate            ("142 BPM")
-     *   object 2 — distance + speed      ("3.42 km · 10.8 km/h")
-     *   object 3 — time + average speed  ("12:34 · 9.6 km/h avg")
-     *
-     * Each object is a separate Web Bridge text object with a stable id, so a
-     * re-send updates it in place. Objects are enqueued in order.
-     */
-    fun showMetrics(
-        bpm: Int,
-        distanceMeters: Double,
-        speedKmh: Double,
-        averageKmh: Double,
-        elapsedMillis: Long,
-        noSpeed: Boolean = false
-    ) {
-        sendText(OBJECT_HR, "$bpm BPM")
-        if (noSpeed) {
-            sendText(OBJECT_METRICS, "Sport libre")
-            sendText(OBJECT_TIME, formatElapsed(elapsedMillis))
-        } else {
-            sendText(OBJECT_METRICS, formatDistanceSpeed(distanceMeters, speedKmh))
-            sendText(OBJECT_TIME, formatTimeAvg(elapsedMillis, averageKmh))
-        }
-    }
-
-    private fun sendText(objectId: Int, text: String) {
-        val frames = GmFrame.webBridgeText(
-            eventId = nextEventId(),
-            id = objectId,
-            x = 40,
-            y = yForObject(objectId),
-            width = 560,
-            height = 120,
-            border = 0,
-            radius = 0,
-            text = text,
-            maxFrameBytes = maxFrameForMtu()
-        )
-        frames.forEach { enqueue(it) }
-    }
-
-    private fun yForObject(objectId: Int): Int = when (objectId) {
-        OBJECT_HR -> 40
-        OBJECT_METRICS -> 180
-        else -> 320
-    }
-
-    private fun formatDistanceSpeed(distanceMeters: Double, speedKmh: Double): String {
-        val km = distanceMeters / 1000.0
-        return String.format(java.util.Locale.US, "%.2f km · %.1f km/h", km, speedKmh)
-    }
-
-    private fun formatElapsed(elapsedMillis: Long): String {
-        val totalSec = elapsedMillis / 1000
-        return String.format(java.util.Locale.US, "%d:%02d", totalSec / 60, totalSec % 60)
-    }
-
-    private fun formatTimeAvg(elapsedMillis: Long, averageKmh: Double): String {
-        val totalSec = elapsedMillis / 1000
-        val m = totalSec / 60
-        val s = totalSec % 60
-        return String.format(java.util.Locale.US, "%d:%02d · %.1f km/h avg", m, s, averageKmh)
-    }
-
-    /** Clear the Web Bridge scene. */
-    fun clear() {
-        enqueue(GmFrame.webBridgeClear(nextEventId()))
-    }
 
     /**
      * Max physical GM frame size that fits one ATT write: MTU minus the 3-byte
@@ -1180,7 +1116,9 @@ class GlassesHudClient(
         }
         ready = false
         cardioReady = false
+        musicReady = false
         cardioPending = null
+        trackPending = null
         linking = false
         linkCandidate = -1
         linkUp = false
@@ -1191,8 +1129,6 @@ class GlassesHudClient(
         advertisedServices.clear()
         handler.removeCallbacks(cardioFlush)
         handler.removeCallbacks(pluginWait)
-        handler.removeCallbacks(textFlush)
-        pendingTextBpm = 0
         handler.removeCallbacks(scanTimeout)
         writeQueue.clear()
         sppReader?.interrupt()

@@ -4,15 +4,15 @@ plugins {
 }
 
 android {
-    namespace = "com.dynag.cardio"
+    namespace = "com.dynag.memoonly"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.dynag.cardio"
+        applicationId = "com.dynag.memoonly"
         minSdk = 26
         targetSdk = 34
-        versionCode = 20
-        versionName = "1.2.17"
+        versionCode = 1
+        versionName = "1.0.0"
     }
 
     buildTypes {

@@ -13,5 +13,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "MemoMindCardio"
+rootProject.name = "MemoOnly"
 include(":app")

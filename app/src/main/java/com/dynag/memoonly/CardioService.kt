@@ -1,4 +1,4 @@
-package com.dynag.cardio
+package com.dynag.memoonly
 
 import android.annotation.SuppressLint
 import android.app.Notification
@@ -27,7 +27,7 @@ import java.util.Locale
  * A foreground service with a `location` type keeps the GNSS updates flowing,
  * and also drains the glasses write queue once the activity is gone.
  */
-class TrackingService : Service(),
+class CardioService : Service(),
     LocationTracker.Listener,
     GlassesHudClient.Listener,
     HeartRateManager.Listener {
@@ -50,10 +50,29 @@ class TrackingService : Service(),
     /** Generic sport: no GPS pace, the HUD keeps only BPM and the timer. */
     private var noSpeed = false
 
+    /**
+     * Kept alive while the user is in the app. When the last activity
+     * unbinds, an idle service (no sensor, no workout) shuts itself down so
+     * the glasses link is not left open in the background.
+     */
+    private var boundClients = 0
+
     private val restingBpm = 60
     private val maxBpm = 190
 
-    override fun onBind(intent: Intent?): IBinder? = null
+    override fun onBind(intent: Intent?): IBinder? {
+        boundClients++
+        return null
+    }
+
+    override fun onUnbind(intent: Intent?): Boolean {
+        boundClients = (boundClients - 1).coerceAtLeast(0)
+        if (boundClients == 0 && !location.isRunning && !heartRate.isConnected) {
+            // Returns to the app later through a fresh startForegroundService.
+            stopSelf()
+        }
+        return super.onUnbind(intent)
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -115,7 +134,7 @@ class TrackingService : Service(),
         val stop = PendingIntent.getService(
             this,
             1,
-            Intent(this, TrackingService::class.java).setAction(ACTION_STOP),
+            Intent(this, CardioService::class.java).setAction(ACTION_STOP),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
         val notification: Notification = NotificationCompat.Builder(this, CHANNEL_ID)
@@ -240,14 +259,19 @@ class TrackingService : Service(),
         pushEnabled = true
         glasses.sendCardioConfig(restingBpm, maxBpm)
         glasses.sendCardioStatus(if (sensorReady) STATE_READING else STATE_CONNECTING)
-        glasses.showMetrics(
-            lastBpm, lastDistance, lastSpeedKmh, lastAverageKmh, lastElapsedMs, noSpeed
-        )
         pushTracking()
     }
 
     override fun onGlassesDisconnected() {
         pushEnabled = false
+    }
+
+    override fun onMusicReady() {
+        // The music mirror (if any) re-pushes from its own copy of the client.
+    }
+
+    override fun onToggleRequest() {
+        // The glasses button only drives the music mirror.
     }
 
     override fun onCardioReady() {
@@ -309,12 +333,12 @@ class TrackingService : Service(),
         private const val STATE_READING = 2
         private const val STATE_IDLE = 0
 
-        const val ACTION_START = "com.dynag.cardio.action.START_TRACKING"
-        const val ACTION_STOP = "com.dynag.cardio.action.STOP_TRACKING"
-        const val EXTRA_NO_SPEED = "com.dynag.cardio.extra.NO_SPEED"
+        const val ACTION_START = "com.dynag.memoonly.action.START_TRACKING"
+        const val ACTION_STOP = "com.dynag.memoonly.action.STOP_TRACKING"
+        const val EXTRA_NO_SPEED = "com.dynag.memoonly.extra.NO_SPEED"
 
         fun start(context: Context, noSpeed: Boolean = false) {
-            val intent = Intent(context, TrackingService::class.java)
+            val intent = Intent(context, CardioService::class.java)
                 .setAction(ACTION_START)
                 .putExtra(EXTRA_NO_SPEED, noSpeed)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -326,7 +350,7 @@ class TrackingService : Service(),
 
         fun stop(context: Context) {
             context.startService(
-                Intent(context, TrackingService::class.java).setAction(ACTION_STOP)
+                Intent(context, CardioService::class.java).setAction(ACTION_STOP)
             )
         }
     }

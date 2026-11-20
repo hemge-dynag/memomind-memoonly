@@ -1,27 +1,31 @@
-package com.dynag.cardio
+package com.dynag.memoonly
 
 import android.Manifest
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.location.LocationManager
 import android.os.PowerManager
 import android.os.Build
 import android.os.Bundle
+import android.view.LayoutInflater
 import android.view.View
+import android.view.ViewGroup
 import android.widget.Button
 import android.widget.RadioGroup
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
-import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.fragment.app.Fragment
+import com.dynag.memoonly.databinding.FragmentCardioBinding
 import java.util.Locale
 
 /**
- * MemoMind Cardio — standalone companion app.
+ * MemoOnly — workout tab.
  *
  * Reads live heart rate from any Bluetooth LE source that exposes the standard
  * Heart Rate service (0x180D): chest straps (Polar H10, Garmin, Wahoo…) and
@@ -30,19 +34,17 @@ import java.util.Locale
  *
  * Distance, speed and elapsed time come from the phone's GPS, since a
  * heart-rate source carries no motion data. The combined workout metrics are
- * mirrored onto the MemoMind smart glasses HUD over Bluetooth LE.
+ * mirrored onto the MemoMind smart glasses HUD over Bluetooth LE by the
+ * foreground [CardioService], through the paired **cardio glasses plugin**
+ * (channel 0x4344, drawn natively by the `.gmp`).
  *
- * Two displays are driven at once over the GM plugin service (0x0F / 0x28):
- * the paired **cardio glasses plugin** (channel 0x4344, drawn natively by the
- * `.gmp`), and the legacy Web Bridge text channel (channel 2) for when no
- * cardio plugin is running.
- *
- * This app runs outside the MemoMind plugin ecosystem: it uses only public
- * Bluetooth protocols (standard Heart Rate service for the sensor, and the GM
- * plugin / Web Bridge service for the glasses).
+ * The fragment only drives the on-screen UI and the sensor scan; GPS, the
+ * forever-running HUD stream and the glasses link belong to the service.
  */
-class MainActivity : AppCompatActivity(),
+class CardioFragment : Fragment(),
     HeartRateManager.Listener {
+
+    private var binding: FragmentCardioBinding? = null
 
     private lateinit var bpmText: TextView
     private lateinit var distText: TextView
@@ -50,7 +52,6 @@ class MainActivity : AppCompatActivity(),
     private lateinit var timeText: TextView
     private lateinit var avgText: TextView
     private lateinit var zoneText: TextView
-    private lateinit var subtitleText: TextView
     private lateinit var statusText: TextView
     private lateinit var btnSensor: Button
     private lateinit var btnGlasses: Button
@@ -73,7 +74,7 @@ class MainActivity : AppCompatActivity(),
     private var lastAverageKmh = 0.0
     private var lastElapsedMs = 0L
     private var sensorReady = false
-    /** True while the foreground [TrackingService] owns location + glasses. */
+    /** True while the foreground [CardioService] owns location + glasses. */
     private var jobRunning = false
 
     /**
@@ -103,30 +104,38 @@ class MainActivity : AppCompatActivity(),
         }
     }
 
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_main)
+    override fun onCreateView(
+        inflater: LayoutInflater,
+        container: ViewGroup?,
+        savedInstanceState: Bundle?
+    ): View {
+        val b = FragmentCardioBinding.inflate(inflater, container, false)
+        binding = b
+        return b.root
+    }
 
-        bpmText = findViewById(R.id.bpmText)
-        distText = findViewById(R.id.distText)
-        speedText = findViewById(R.id.speedText)
-        timeText = findViewById(R.id.timeText)
-        avgText = findViewById(R.id.avgText)
-        zoneText = findViewById(R.id.zoneText)
-        subtitleText = findViewById(R.id.subtitleText)
-        statusText = findViewById(R.id.statusText)
-        btnSensor = findViewById(R.id.btnSensor)
-        btnGlasses = findViewById(R.id.btnGlasses)
-        btnTrack = findViewById(R.id.btnTrack)
-        btnCopyLog = findViewById(R.id.btnCopyLog)
-        logHeader = findViewById(R.id.logHeader)
-        logToggle = findViewById(R.id.logToggle)
-        logPanel = findViewById(R.id.logPanel)
-        speedRow = findViewById(R.id.speedRow)
-        distanceBlock = findViewById(R.id.distanceBlock)
-        speedBlock = findViewById(R.id.speedBlock)
-        averageBlock = findViewById(R.id.averageBlock)
-        sportGroup = findViewById(R.id.sportGroup)
+    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        super.onViewCreated(view, savedInstanceState)
+
+        bpmText = view.findViewById(R.id.bpmText)
+        distText = view.findViewById(R.id.distText)
+        speedText = view.findViewById(R.id.speedText)
+        timeText = view.findViewById(R.id.timeText)
+        avgText = view.findViewById(R.id.avgText)
+        zoneText = view.findViewById(R.id.zoneText)
+        statusText = view.findViewById(R.id.statusText)
+        btnSensor = view.findViewById(R.id.btnSensor)
+        btnGlasses = view.findViewById(R.id.btnGlasses)
+        btnTrack = view.findViewById(R.id.btnTrack)
+        btnCopyLog = view.findViewById(R.id.btnCopyLog)
+        logHeader = view.findViewById(R.id.logHeader)
+        logToggle = view.findViewById(R.id.logToggle)
+        logPanel = view.findViewById(R.id.logPanel)
+        speedRow = view.findViewById(R.id.speedRow)
+        distanceBlock = view.findViewById(R.id.distanceBlock)
+        speedBlock = view.findViewById(R.id.speedBlock)
+        averageBlock = view.findViewById(R.id.averageBlock)
+        sportGroup = view.findViewById(R.id.sportGroup)
 
         sportGroup.check(R.id.sportRun)
         sportGroup.setOnCheckedChangeListener { _, checkedId ->
@@ -138,7 +147,7 @@ class MainActivity : AppCompatActivity(),
         logHeader.setOnClickListener { toggleLog() }
         logToggle.setOnClickListener { toggleLog() }
 
-        heartRate = HeartRateManager(this, this)
+        heartRate = HeartRateManager(requireContext(), this)
 
         btnSensor.setOnClickListener {
             ensurePermissions {
@@ -177,7 +186,7 @@ class MainActivity : AppCompatActivity(),
                 // Connection itself lives in the foreground service; this
                 // button re-launches it (and reports if nothing is tracking).
                 if (jobRunning) {
-                    TrackingService.start(this)
+                    CardioService.start(requireContext())
                 } else {
                     toast(getString(R.string.msg_start_track_first))
                 }
@@ -189,16 +198,22 @@ class MainActivity : AppCompatActivity(),
             }
         }
         btnCopyLog.setOnClickListener {
-            val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
-            clipboard.setPrimaryClip(ClipData.newPlainText("Cardio log", statusText.text))
+            val clipboard = requireActivity().getSystemService(android.content.Context.CLIPBOARD_SERVICE) as ClipboardManager
+            clipboard.setPrimaryClip(ClipData.newPlainText("MemoOnly log", statusText.text))
             appendStatus(getString(R.string.msg_log_copied))
         }
     }
 
+    override fun onDestroyView() {
+        super.onDestroyView()
+        binding = null
+    }
+
     private fun toggleLog() {
-        val show = logPanel.visibility != View.VISIBLE
-        logPanel.visibility = if (show) View.VISIBLE else View.GONE
-        logToggle.setText(if (show) R.string.log_hide else R.string.log_show)
+        val b = binding ?: return
+        val show = b.logPanel.visibility != View.VISIBLE
+        b.logPanel.visibility = if (show) View.VISIBLE else View.GONE
+        b.logToggle.setText(if (show) R.string.log_hide else R.string.log_show)
     }
 
     private fun requiredPermissions(): Array<String> {
@@ -222,7 +237,7 @@ class MainActivity : AppCompatActivity(),
 
     private fun ensurePermissions(action: () -> Unit) {
         val missing = requiredPermissions().filter {
-            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+            ContextCompat.checkSelfPermission(requireContext(), it) != PackageManager.PERMISSION_GRANTED
         }
         if (missing.isEmpty()) {
             action()
@@ -257,7 +272,7 @@ class MainActivity : AppCompatActivity(),
 
     private fun startJob() {
         if (!checkBatteryExemption()) return
-        TrackingService.start(this, noSpeed)
+        CardioService.start(requireContext(), noSpeed)
         jobRunning = true
         btnTrack.text = getString(R.string.btn_track_stop)
         appendStatus(
@@ -268,7 +283,7 @@ class MainActivity : AppCompatActivity(),
     }
 
     private fun stopJob() {
-        TrackingService.stop(this)
+        CardioService.stop(requireContext())
         jobRunning = false
         btnTrack.text = getString(R.string.btn_track)
         lastElapsedMs = 0L
@@ -288,13 +303,14 @@ class MainActivity : AppCompatActivity(),
      * and explain instead of silently freezing the HUD.
      */
     private fun checkBatteryExemption(): Boolean {
-        val pm = getSystemService(POWER_SERVICE) as? PowerManager ?: return true
-        if (pm.isIgnoringBatteryOptimizations(packageName)) return true
+        val ctx = requireContext()
+        val pm = ctx.getSystemService(Context.POWER_SERVICE) as? PowerManager ?: return true
+        if (pm.isIgnoringBatteryOptimizations(ctx.packageName)) return true
         runCatching {
             startActivity(
                 Intent(
                     android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
-                    android.net.Uri.parse("package:$packageName")
+                    android.net.Uri.parse("package:${ctx.packageName}")
                 )
             )
         }
@@ -305,11 +321,11 @@ class MainActivity : AppCompatActivity(),
     // ---- HeartRateManager.Listener ------------------------------------
 
     override fun onSensorStatus(message: String) {
-        runOnUiThread { appendStatus(message) }
+        activity?.runOnUiThread { appendStatus(message) }
     }
 
     override fun onSensorsDiscovered(sensors: List<BleSensor>) {
-        runOnUiThread {
+        activity?.runOnUiThread {
             if (sensors.isEmpty()) {
                 appendStatus(getString(R.string.msg_no_device_found))
                 return@runOnUiThread
@@ -319,7 +335,7 @@ class MainActivity : AppCompatActivity(),
                 return@runOnUiThread
             }
             val labels = sensors.map { it.displayName }.toTypedArray()
-            AlertDialog.Builder(this)
+            AlertDialog.Builder(requireContext())
                 .setTitle(R.string.dialog_choose_sensor)
                 .setItems(labels) { _, which -> heartRate.connect(sensors[which]) }
                 .setNegativeButton(R.string.dialog_cancel, null)
@@ -328,7 +344,7 @@ class MainActivity : AppCompatActivity(),
     }
 
     override fun onSensorReady() {
-        runOnUiThread {
+        activity?.runOnUiThread {
             reconnectingSaved = false
             sensorReady = true
             appendStatus(getString(R.string.msg_sensor_ready))
@@ -339,9 +355,8 @@ class MainActivity : AppCompatActivity(),
     }
 
     override fun onSensorDisconnected() {
-        runOnUiThread {
+        activity?.runOnUiThread {
             sensorReady = false
-            subtitleText.text = "Capteur inactif"
             if (reconnectingSaved) {
                 reconnectingSaved = false
                 appendStatus(getString(R.string.saved_sensor_missing))
@@ -354,7 +369,7 @@ class MainActivity : AppCompatActivity(),
     }
 
     override fun onSensorError(message: String) {
-        runOnUiThread {
+        activity?.runOnUiThread {
             sensorReady = false
             if (reconnectingSaved) {
                 // The remembered sensor could not be reached (moved, paired
@@ -376,10 +391,9 @@ class MainActivity : AppCompatActivity(),
         val firstBeat = lastBpm == 0
         lastBpm = bpm
         lastContactBad = contactDetected == false
-        runOnUiThread {
+        activity?.runOnUiThread {
             bpmText.text = bpm.toString()
             updateZone(bpm)
-            subtitleText.text = "Capteur connecté"
             if (firstBeat) appendStatus(getString(R.string.msg_first_beat))
         }
     }
@@ -413,7 +427,8 @@ class MainActivity : AppCompatActivity(),
 
     private fun setZone(label: String, colorRes: Int) {
         zoneText.text = label
-        zoneText.setTextColor(ContextCompat.getColor(this, colorRes))
+        val ctx = context ?: return
+        zoneText.setTextColor(ContextCompat.getColor(ctx, colorRes))
     }
 
     private fun appendStatus(line: String) {
@@ -421,13 +436,15 @@ class MainActivity : AppCompatActivity(),
     }
 
     private fun toast(message: String) {
-        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+        Toast.makeText(requireContext(), message, Toast.LENGTH_SHORT).show()
     }
 
     override fun onDestroy() {
         super.onDestroy()
         // location + glasses belong to the foreground service; it keeps the
-        // workout (and the HUD) alive after the activity is gone.
+        // workout (and the HUD) alive while the fragment is gone. Between
+        // tabs only the sensor scan is released, and the service itself
+        // reconnects to the saved strap when a workout starts.
         heartRate.stop()
     }
 }

@@ -1,0 +1,262 @@
+package com.dynag.memoonly
+
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.app.Service
+import android.content.Context
+import android.content.Intent
+import android.content.pm.ServiceInfo
+import android.graphics.Bitmap
+import android.os.Build
+import android.os.Handler
+import android.os.IBinder
+import android.os.Looper
+import androidx.core.app.NotificationCompat
+
+/**
+ * Keeps the "now playing" mirror alive while the phone screen is off.
+ *
+ * It polls the active MediaSession once a second and pushes what changed to
+ * the glasses music plugin: metadata when the track changes, a light progress
+ * frame every tick, and the cover art (decoded, quantised to 16 grays and LZ4
+ * compressed) when the track changes. The glasses button comes back as a
+ * toggle request, which we forward to the MediaSession.
+ *
+ * A foreground service keeps the poll running when the player is in the
+ * background and the display is off.
+ */
+class MusicMirrorService : Service(),
+    GlassesHudClient.Listener {
+
+    private lateinit var glasses: GlassesHudClient
+    private lateinit var nowPlaying: NowPlaying
+    private val handler = Handler(Looper.getMainLooper())
+
+    private var lastFingerprint = ""
+    private var lastCoverFingerprint = ""
+    private var lastTrackId = 0
+    private var lastIdle = false
+    private var glassesLinked = false
+
+    override fun onBind(intent: Intent?): IBinder? = null
+
+    override fun onCreate() {
+        super.onCreate()
+        glasses = GlassesHudClient(this, this)
+        nowPlaying = NowPlaying(this)
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        when (intent?.action) {
+            ACTION_START -> {
+                startAsForeground("Miroir actif")
+                connectGlasses()
+                handler.removeCallbacks(ticker)
+                handler.post(ticker)
+            }
+            ACTION_STOP -> stopSelf()
+            else -> startAsForeground("Miroir actif")
+        }
+        return START_NOT_STICKY
+    }
+
+    override fun onDestroy() {
+        handler.removeCallbacks(ticker)
+        if (glassesLinked) glasses.sendIdle()
+        glasses.disconnect()
+        super.onDestroy()
+    }
+
+    // ---- glasses -------------------------------------------------------
+
+    private fun connectGlasses() {
+        glassesLinked = true
+        glasses.connect()
+    }
+
+    override fun onGlassesStatus(message: String) {
+        // Surfaced through the notification text only.
+    }
+
+    override fun onGlassesReady() {
+        // Force a full refresh once the link comes up.
+        lastFingerprint = ""
+        lastCoverFingerprint = ""
+        lastIdle = false
+        pushSnapshot()
+    }
+
+    override fun onGlassesDisconnected() {
+        // The client retries on its own; the ticker keeps polling.
+    }
+
+    override fun onMusicReady() {
+        lastFingerprint = ""
+        lastCoverFingerprint = ""
+        lastIdle = false
+        pushSnapshot()
+    }
+
+    override fun onCardioReady() {
+        // The workout service owns the cardio HUD stream.
+    }
+
+    override fun onToggleRequest() {
+        nowPlaying.toggle()
+        handler.postDelayed({ pushSnapshot() }, 250)
+    }
+
+    override fun onGlassesChooser(devices: List<Pair<String, String>>) {
+        // No foreground UI here; the activity drives the first pairing.
+    }
+
+    // ---- polling loop --------------------------------------------------
+
+    private val ticker = object : Runnable {
+        override fun run() {
+            pushSnapshot()
+            handler.postDelayed(this, TICK_MS)
+        }
+    }
+
+    private fun pushSnapshot() {
+        val track = nowPlaying.snapshot()
+        if (track == null) {
+            if (!lastIdle) {
+                lastIdle = true
+                lastFingerprint = ""
+                lastCoverFingerprint = ""
+                glasses.sendIdle()
+            }
+            updateNotification("Aucune lecture")
+            return
+        }
+        lastIdle = false
+        val fingerprint = "${track.title}|${track.artist}"
+        val coverChanged = fingerprint != lastCoverFingerprint
+        if (fingerprint != lastFingerprint) {
+            lastFingerprint = fingerprint
+            lastTrackId = track.id
+            glasses.sendTrackNow(
+                GmFrame.trackMeta(
+                    trackId = track.id,
+                    durationMs = track.durationMs,
+                    positionMs = track.positionMs,
+                    playing = track.playing,
+                    title = track.title,
+                    artist = track.artist
+                )
+            )
+            updateNotification("${track.title} — ${track.artist}".trim(' ', '—'))
+        } else {
+            glasses.sendTrackPayload(
+                GmFrame.trackProgress(track.id, track.positionMs, track.playing)
+            )
+        }
+        if (coverChanged) {
+            lastCoverFingerprint = fingerprint
+            sendCover()
+        }
+    }
+
+    private fun sendCover() {
+        val cover = nowPlaying.coverNibbles(COVER_MAX_EDGE) ?: return
+        val (bitmap, nibbles) = cover
+        val width = bitmap.width
+        val height = bitmap.height
+        val lz4 = Lz4.compressBlock(nibbles)
+        bitmap.recycle()
+        glasses.sendCoverPayload(
+            GmFrame.coverPayload(width, height, lz4)
+        )
+    }
+
+    // ---- foreground notification ---------------------------------------
+
+    private fun startAsForeground(text: String) {
+        val manager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                CHANNEL_ID,
+                getString(R.string.notif_channel),
+                NotificationManager.IMPORTANCE_LOW
+            )
+            channel.setShowBadge(false)
+            manager.createNotificationChannel(channel)
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(
+                NOTIF_ID,
+                buildNotification(text),
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+            )
+        } else {
+            startForeground(NOTIF_ID, buildNotification(text))
+        }
+    }
+
+    private fun updateNotification(text: String) {
+        val manager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+        runCatching { manager.notify(NOTIF_ID, buildNotification(text)) }
+    }
+
+    private fun buildNotification(text: String): Notification {
+        val open = PendingIntent.getActivity(
+            this,
+            0,
+            Intent(this, MainActivity::class.java),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+        val stop = PendingIntent.getService(
+            this,
+            1,
+            Intent(this, MusicMirrorService::class.java).setAction(ACTION_STOP),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+        return NotificationCompat.Builder(this, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_stat_tracking)
+            .setContentTitle(getString(R.string.app_name))
+            .setContentText(text)
+            .setOngoing(true)
+            .setShowWhen(false)
+            .setOnlyAlertOnce(true)
+            .setContentIntent(open)
+            .addAction(0, getString(R.string.notif_stop), stop)
+            .build()
+    }
+
+    companion object {
+        private const val CHANNEL_ID = "music_mirror"
+        private const val NOTIF_ID = 42
+        private const val TICK_MS = 1000L
+        private const val COVER_MAX_EDGE = 240
+
+        const val ACTION_START = "com.dynag.memoonly.action.START_MIRROR"
+        const val ACTION_STOP = "com.dynag.memoonly.action.STOP_MIRROR"
+
+        fun start(context: Context) {
+            val intent = Intent(context, MusicMirrorService::class.java)
+                .setAction(ACTION_START)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.startForegroundService(intent)
+            } else {
+                context.startService(intent)
+            }
+        }
+
+        fun stop(context: Context) {
+            context.startService(
+                Intent(context, MusicMirrorService::class.java).setAction(ACTION_STOP)
+            )
+        }
+
+        /** Called by [NowPlayingListener] when a notification arrives or leaves. */
+        fun notifySessionsChanged() {
+            // The service polls on its own ticker; this hook keeps the contract
+            // explicit for the notification listener and allows a future
+            // push-driven mode without changing callers.
+        }
+    }
+}
