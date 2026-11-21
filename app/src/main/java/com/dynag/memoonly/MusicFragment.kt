@@ -54,8 +54,12 @@ class MusicFragment : Fragment() {
     private lateinit var nowPlaying: NowPlaying
     private val handler = Handler(Looper.getMainLooper())
 
-    /** True while the foreground [MusicMirrorService] is mirroring. */
+    /**
+     * True while the foreground [MusicMirrorService] is mirroring. The service
+     * outlives this fragment, so the flag is restored from its saved state.
+     */
     private var mirrorRunning = false
+    private var restoreMirrorState = true
     private var lastFingerprint = ""
     private var lastCoverFingerprint = ""
     private var lastGlassesLog = ""
@@ -97,6 +101,13 @@ class MusicFragment : Fragment() {
         logPanel = view.findViewById(R.id.logPanel)
 
         nowPlaying = NowPlaying(requireContext())
+        if (restoreMirrorState) {
+            restoreMirrorState = false
+            mirrorRunning = MusicMirrorService.isRunning(requireContext())
+            btnMirror.setText(
+                if (mirrorRunning) R.string.btn_mirror_stop else R.string.btn_mirror
+            )
+        }
 
         logHeader.setOnClickListener { toggleLog() }
         logToggle.setOnClickListener { toggleLog() }
@@ -105,6 +116,7 @@ class MusicFragment : Fragment() {
             if (NowPlayingListener.isGranted(requireContext())) {
                 appendStatus(getString(R.string.btn_access_ok))
             } else {
+                toast(getString(R.string.msg_access_required))
                 NowPlayingListener.openSettings(requireContext())
             }
         }
@@ -114,7 +126,11 @@ class MusicFragment : Fragment() {
                 if (mirrorRunning) {
                     MusicMirrorService.start(requireContext())
                 } else {
-                    toast(getString(R.string.msg_start_mirror_first))
+                    // Link to the glasses without starting the mirror: a
+                    // mirror started from here would stop at once outside a
+                    // player, and re-ask for the device.
+                    MusicMirrorService.connectOnly(requireContext())
+                    appendStatus(getString(R.string.msg_glasses_connecting))
                 }
             }
         }
@@ -147,6 +163,12 @@ class MusicFragment : Fragment() {
 
     override fun onResume() {
         super.onResume()
+        // My earlier absence from the screen is not a user stop: re-read the
+        // state the service persisted (the music tab lives in the activity).
+        if (mirrorRunning && !MusicMirrorService.isRunning(requireContext())) {
+            mirrorRunning = false
+            binding?.let { it.btnMirror.setText(R.string.btn_mirror) }
+        }
         updateAccessButton()
         handler.removeCallbacks(ticker)
         handler.post(ticker)
@@ -155,6 +177,8 @@ class MusicFragment : Fragment() {
     override fun onPause() {
         super.onPause()
         handler.removeCallbacks(ticker)
+        // The foreground service keeps mirroring while the phone is idle or
+        // the user is on the cardio tab; only the ticker stops here.
     }
 
     // ---- mirror lifecycle ----------------------------------------------

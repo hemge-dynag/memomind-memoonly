@@ -40,6 +40,7 @@ class MusicMirrorService : Service(),
     private var lastTrackId = 0
     private var lastIdle = false
     private var glassesLinked = false
+    private var idleConnected = false
     private var lastStatus = "Miroir actif"
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -54,9 +55,18 @@ class MusicMirrorService : Service(),
         when (intent?.action) {
             ACTION_START -> {
                 startAsForeground("Miroir actif")
+                setMirrorPref(true)
+                idleConnected = false
                 connectGlasses()
                 handler.removeCallbacks(ticker)
                 handler.post(ticker)
+            }
+            ACTION_CONNECT -> {
+                // Only reach for the glasses, never for the player: this is the
+                // "Connecter les lunettes" button of the music tab.
+                startAsForeground("Miroir actif")
+                idleConnected = true
+                connectGlasses()
             }
             ACTION_STOP -> stopSelf()
             else -> startAsForeground("Miroir actif")
@@ -65,6 +75,7 @@ class MusicMirrorService : Service(),
     }
 
     override fun onDestroy() {
+        setMirrorPref(false)
         handler.removeCallbacks(ticker)
         if (glassesLinked) glasses.sendIdle()
         glasses.disconnect()
@@ -75,6 +86,7 @@ class MusicMirrorService : Service(),
 
     private fun connectGlasses() {
         glassesLinked = true
+        if (glasses.isReady) return
         glasses.connect()
     }
 
@@ -129,15 +141,20 @@ class MusicMirrorService : Service(),
     private fun pushSnapshot() {
         val track = nowPlaying.snapshot()
         if (track == null) {
-            if (!lastIdle) {
-                lastIdle = true
-                lastFingerprint = ""
-                lastCoverFingerprint = ""
-                glasses.sendIdle()
+            if (idleConnected) {
+                if (!lastIdle) {
+                    lastIdle = true
+                    lastFingerprint = ""
+                    lastCoverFingerprint = ""
+                    glasses.sendIdle()
+                }
+                updateNotification(currentText())
             }
-            updateNotification(currentText())
             return
         }
+        // A track appeared while only the glasses were connected: start the
+        // mirror for good.
+        idleConnected = false
         lastIdle = false
         val fingerprint = "${track.title}|${track.artist}"
         val coverChanged = fingerprint != lastCoverFingerprint
@@ -176,6 +193,11 @@ class MusicMirrorService : Service(),
         glasses.sendCoverPayload(
             GmFrame.coverPayload(width, height, lz4)
         )
+    }
+
+    private fun setMirrorPref(running: Boolean) {
+        getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().putBoolean(PREF_RUNNING, running).apply()
     }
 
     // ---- foreground notification ---------------------------------------
@@ -248,11 +270,14 @@ class MusicMirrorService : Service(),
 
     companion object {
         private const val CHANNEL_ID = "music_mirror"
+        private const val PREFS = "memo_mirror"
+        private const val PREF_RUNNING = "mirror_running"
         private const val NOTIF_ID = 42
         private const val TICK_MS = 1000L
         private const val COVER_MAX_EDGE = 240
 
         const val ACTION_START = "com.dynag.memoonly.action.START_MIRROR"
+        const val ACTION_CONNECT = "com.dynag.memoonly.action.CONNECT_GLASSES"
         const val ACTION_STOP = "com.dynag.memoonly.action.STOP_MIRROR"
 
         fun start(context: Context) {
@@ -264,6 +289,22 @@ class MusicMirrorService : Service(),
                 context.startService(intent)
             }
         }
+
+        /** Connect the glasses only (no mirroring until a track is playing). */
+        fun connectOnly(context: Context) {
+            val intent = Intent(context, MusicMirrorService::class.java)
+                .setAction(ACTION_CONNECT)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.startForegroundService(intent)
+            } else {
+                context.startService(intent)
+            }
+        }
+
+        /** True while a mirror was started and not stopped since. */
+        fun isRunning(context: Context): Boolean =
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .getBoolean(PREF_RUNNING, false)
 
         fun stop(context: Context) {
             context.startService(

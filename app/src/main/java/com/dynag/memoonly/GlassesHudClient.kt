@@ -91,9 +91,12 @@ class GlassesHudClient(
         // Bluetooth-base GM service; its characteristics are 0x2021/0x2022, but
         // advertisements list the *service* UUID, so match 0x2020 here.
         private const val GM_SERVICE_16 = "00002020"
-        // Persisted address of the glasses the user picked once.
+        // Persisted address of the glasses the user picked once, and whether
+        // that pick is already confirmed. Both services of MemOnly need the
+        // address; only a confirmed pick may be reused without asking.
         private const val PREFS = "memo_cardio"
         private const val PREF_GLASSES_ADDR = "glasses_addr"
+        private const val PREF_GLASSES_CONFIRMED = "glasses_confirmed"
 
         // Classic SPP command transport, the one the official App prefers.
         // The glasses never advertise the BLE GM service on every firmware,
@@ -254,6 +257,16 @@ class GlassesHudClient(
         if (bonded.isNotEmpty()) {
             listener.onGlassesStatus("Choisissez vos lunettes parmi les appareils appairés.")
             listener.onGlassesChooser(bonded)
+            return
+        }
+
+        // One glasses pick serves the whole app: when the user already chose
+        // them in the other tab (not confirmed yet), reuse that pick instead of
+        // asking again.
+        val picked = prefs.getString(PREF_GLASSES_ADDR, null)
+        if (!picked.isNullOrBlank() && prefs.getBoolean(PREF_GLASSES_CONFIRMED, false)) {
+            listener.onGlassesStatus("Connexion aux lunettes enregistrées ($picked)…")
+            connectToAddress(picked)
             return
         }
 
@@ -476,7 +489,10 @@ class GlassesHudClient(
         mtu = SPP_MAX_FRAME_BYTES
         val addr = runCatching { device.address }.getOrNull()
         if (!addr.isNullOrBlank()) {
-            prefs.edit().putString(PREF_GLASSES_ADDR, addr).apply()
+            prefs.edit()
+                .putString(PREF_GLASSES_ADDR, addr)
+                .putBoolean(PREF_GLASSES_CONFIRMED, true)
+                .apply()
         }
         listener.onGlassesStatus("Lunettes connectées en Classic SPP.")
         active = this
@@ -844,7 +860,10 @@ class GlassesHudClient(
             // Confirmed glasses: remember them so future connects skip the scan.
             val confirmedAddress = runCatching { g.device.address }.getOrNull()
             if (!confirmedAddress.isNullOrBlank()) {
-                prefs.edit().putString(PREF_GLASSES_ADDR, confirmedAddress).apply()
+                prefs.edit()
+                    .putString(PREF_GLASSES_ADDR, confirmedAddress)
+                    .putBoolean(PREF_GLASSES_CONFIRMED, true)
+                    .apply()
             }
             armPluginWait()
             active = this@GlassesHudClient

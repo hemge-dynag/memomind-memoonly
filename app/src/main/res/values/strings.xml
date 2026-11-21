@@ -86,4 +86,5 @@
     <string name="msg_mirror_started">Miroir démarré : la pochette et le titre suivent la musique, écran éteint.</string>
     <string name="msg_mirror_stopped">Miroir arrêté.</string>
     <string name="msg_start_mirror_first">Démarrez le miroir pour connecter les lunettes.</string>
+    <string name="msg_glasses_connecting">Connexion aux lunettes…</string>
 </resources>
