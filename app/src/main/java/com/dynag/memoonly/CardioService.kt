@@ -39,6 +39,9 @@ class CardioService : Service(),
 
     private var lastBpm = 0
     private var lastContactBad = false
+    private var bpmSeen = 0
+    private var bpmForwarded = 0
+    private var lastJournalAt = 0L
     private var sensorReady = false
     private var pushEnabled = false
     private var lastDistance = 0.0
@@ -317,8 +320,18 @@ class CardioService : Service(),
         val firstBeat = lastBpm == 0
         lastBpm = bpm
         lastContactBad = contactDetected == false
+        bpmSeen++
+        if (glasses.cardioReady) bpmForwarded++
         glasses.showCardioReading(bpm, restingBpm, maxBpm, lastContactBad, bpm)
         if (firstBeat) glasses.sendCardioStatus(STATE_READING)
+        val now = SystemClock.elapsedRealtime()
+        if (firstBeat || now - lastJournalAt >= BPM_JOURNAL_MS) {
+            lastJournalAt = now
+            glasses.reportJournal(
+                "Cardio : $bpm BPM (capteur $bpmSeen, envoyés lunettes $bpmForwarded, " +
+                    "lunettes ${if (glasses.cardioReady) "prêtes" else "non prêtes"})"
+            )
+        }
     }
 
     companion object {
@@ -328,6 +341,7 @@ class CardioService : Service(),
         private const val TICK_MS = 1000L
         private const val TRACKING_RESEND_MS = 500L
         private const val HUD_NOTIFY_MS = 3000L
+        private const val BPM_JOURNAL_MS = 15000L
 
         private const val STATE_CONNECTING = 1
         private const val STATE_READING = 2

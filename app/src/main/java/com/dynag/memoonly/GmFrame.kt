@@ -81,6 +81,7 @@ object GmFrame {
     const val DBG_PROGRESS_DRAW: Int = 0x13
     const val DBG_SCREEN: Int = 0x20
     const val DBG_SCREEN_RX: Int = 0x30
+    const val DBG_CARDIO_MSG: Int = 0x58
 
     /** Screen-selection payload: `[version, screen]`. */
     fun screenSelect(screen: Int): ByteArray =

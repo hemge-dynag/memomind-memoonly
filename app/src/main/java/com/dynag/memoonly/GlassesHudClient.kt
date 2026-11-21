@@ -152,7 +152,10 @@ class GlassesHudClient(
     private var lastCardioBpm = 0
     private var cardioPending: ByteArray? = null
 
+    private var cardioFlushPosted = false
+
     private val cardioFlush = Runnable {
+        cardioFlushPosted = false
         val payload = cardioPending ?: return@Runnable
         cardioPending = null
         sendCardioPayload(payload)
@@ -563,6 +566,7 @@ class GlassesHudClient(
         cardioPending = null
         trackPending = null
         handler.removeCallbacks(cardioFlush)
+        cardioFlushPosted = false
         handler.removeCallbacks(trackFlush)
         // A saved address that fails later is kept: the glasses may simply be
         // out of range, and re-picking them on every start would be noise.
@@ -746,6 +750,7 @@ class GlassesHudClient(
                     cardioPending = null
                     trackPending = null
                     handler.removeCallbacks(cardioFlush)
+        cardioFlushPosted = false
                     handler.removeCallbacks(trackFlush)
                     g.close()
                     gatt = null
@@ -987,6 +992,11 @@ class GlassesHudClient(
      * away, then a few extra times. The glasses may have started the plugin
      * before our link was up, so a single frame can be lost.
      */
+    /** Surface an app-side event in the journal through the listener. */
+    fun reportJournal(message: String) {
+        listener.onGlassesStatus(message)
+    }
+
     private fun resendScreenOnceReady(wasReady: Boolean) {
         if (wasReady) return
         val screen = pendingScreen
@@ -1014,6 +1024,10 @@ class GlassesHudClient(
                 code == GmFrame.DBG_TRACK_PROGRESS -> "DBG glasses got track progress"
                 code == GmFrame.DBG_TRACK_META -> "DBG glasses got track meta"
                 code == GmFrame.DBG_PROGRESS_DRAW -> "DBG glasses drew progress"
+                code == GmFrame.DBG_CARDIO_MSG -> {
+                    val cmd = if (i + 1 < payload.size) payload[i + 1].toInt() and 0xFF else -1
+                    "DBG glasses got cardio cmd=$cmd"
+                }
                 else -> "DBG glasses code=0x%02x".format(code)
             }
             listener.onGlassesStatus(text)
@@ -1143,9 +1157,16 @@ class GlassesHudClient(
     private fun sendCardioPayload(payload: ByteArray) {
         if (!cardioReady) return
         val now = android.os.SystemClock.elapsedRealtime()
-        if (now - cardioSentAt < CARDIO_PUSH_INTERVAL_MS) {
+        val since = now - cardioSentAt
+        if (since < CARDIO_PUSH_INTERVAL_MS) {
+            // Keep only the newest reading and schedule a single flush for the
+            // exact time the interval ends (a full-interval delay while frames
+            // keep arriving would starve the display forever).
             cardioPending = payload
-            handler.postDelayed(cardioFlush, CARDIO_PUSH_INTERVAL_MS)
+            if (!cardioFlushPosted) {
+                cardioFlushPosted = true
+                handler.postDelayed(cardioFlush, CARDIO_PUSH_INTERVAL_MS - since)
+            }
             return
         }
         cardioSentAt = now
@@ -1240,6 +1261,7 @@ class GlassesHudClient(
         gmCandidates.clear()
         advertisedServices.clear()
         handler.removeCallbacks(cardioFlush)
+        cardioFlushPosted = false
         handler.removeCallbacks(pluginWait)
         handler.removeCallbacks(scanTimeout)
         writeQueue.clear()
