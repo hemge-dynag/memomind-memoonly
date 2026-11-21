@@ -105,6 +105,8 @@ class GlassesHudClient(
         private const val SPP_CONNECT_TIMEOUT_MS = 12000
         // How long we wait for a running glasses plugin to announce readiness.
         private const val PLUGIN_WAIT_MS = 6000L
+        // Extra screen-selection frames after the first plugin announcement.
+        private val SCREEN_RESEND_DELAYS_MS = longArrayOf(1500L, 3500L)
 
         /** The active client, set by whichever service is connected. */
         @Volatile
@@ -950,6 +952,10 @@ class GlassesHudClient(
             resendScreenOnceReady(wasReady)
             return
         }
+        if (channel == GmFrame.CH_DEBUG) {
+            reportGlassesDebug(payload)
+            return
+        }
         // Anything else on the plugin channel helps identify the payload layout.
         if (uplinksSeen <= 12) {
             val hex = payload.take(12).joinToString("") { "%02x".format(it) }
@@ -957,11 +963,42 @@ class GlassesHudClient(
         }
     }
 
-    /** Re-announce the last requested screen the first time a plugin answers. */
+    /**
+     * Re-announce the last requested screen when a plugin answers: once right
+     * away, then a few extra times. The glasses may have started the plugin
+     * before our link was up, so a single frame can be lost.
+     */
     private fun resendScreenOnceReady(wasReady: Boolean) {
         if (wasReady) return
         val screen = pendingScreen
-        if (screen >= 0) sendNow(GmFrame.CH_SCREEN, GmFrame.screenSelect(screen))
+        if (screen < 0) return
+        sendNow(GmFrame.CH_SCREEN, GmFrame.screenSelect(screen))
+        for (delay in SCREEN_RESEND_DELAYS_MS) {
+            handler.postDelayed({
+                if (ready) sendNow(GmFrame.CH_SCREEN, GmFrame.screenSelect(screen))
+            }, delay)
+        }
+    }
+
+    /**
+     * Turn the temporary 0x4D58 diagnostics of the 1.0.4 debug glasses plugin
+     * into journal lines so the phone shows what the glasses actually received.
+     */
+    private fun reportGlassesDebug(payload: ByteArray) {
+        if (payload.size < 2) return
+        for (i in 1 until payload.size) {
+            val code = payload[i].toInt() and 0xFF
+            val text = when {
+                code >= GmFrame.DBG_SCREEN -> "DBG glasses screen=${code - GmFrame.DBG_SCREEN}"
+                code == GmFrame.DBG_SCREEN_RX -> "DBG glasses got screen frame"
+                code == GmFrame.DBG_CARDIO_RX -> "DBG glasses got cardio frame"
+                code == GmFrame.DBG_TRACK_PROGRESS -> "DBG glasses got track progress"
+                code == GmFrame.DBG_TRACK_META -> "DBG glasses got track meta"
+                code == GmFrame.DBG_PROGRESS_DRAW -> "DBG glasses drew progress"
+                else -> "DBG glasses code=0x%02x".format(code)
+            }
+            listener.onGlassesStatus(text)
+        }
     }
 
     // ---- Paired cardio plugin ------------------------------------------

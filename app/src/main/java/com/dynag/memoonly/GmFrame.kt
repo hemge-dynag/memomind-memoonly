@@ -73,6 +73,15 @@ object GmFrame {
     const val SCREEN_CARDIO: Int = 0
     const val SCREEN_MUSIC: Int = 1
 
+    /** Temporary diagnostics channel of the 1.0.4 debug glasses plugin. */
+    const val CH_DEBUG: Int = 0x4D58
+    const val DBG_CARDIO_RX: Int = 0x10
+    const val DBG_TRACK_PROGRESS: Int = 0x11
+    const val DBG_TRACK_META: Int = 0x12
+    const val DBG_PROGRESS_DRAW: Int = 0x13
+    const val DBG_SCREEN: Int = 0x20
+    const val DBG_SCREEN_RX: Int = 0x30
+
     /** Screen-selection payload: `[version, screen]`. */
     fun screenSelect(screen: Int): ByteArray =
         byteArrayOf(PROTOCOL_VERSION.toByte(), (screen and 0xFF).toByte())

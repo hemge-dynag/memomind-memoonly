@@ -40,6 +40,7 @@ class MusicMirrorService : Service(),
     private var lastTrackId = 0
     private var lastIdle = false
     private var glassesLinked = false
+    private var lastStatus = "Miroir actif"
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -78,7 +79,10 @@ class MusicMirrorService : Service(),
     }
 
     override fun onGlassesStatus(message: String) {
-        // Surfaced through the notification text only.
+        // The music tab shows the journal; the notification keeps the last line.
+        UiState.log(this, message)
+        if (message.startsWith("Plugin musique")) lastStatus = message
+        updateNotification(currentText())
     }
 
     override fun onGlassesReady() {
@@ -131,7 +135,7 @@ class MusicMirrorService : Service(),
                 lastCoverFingerprint = ""
                 glasses.sendIdle()
             }
-            updateNotification("Aucune lecture")
+            updateNotification(currentText())
             return
         }
         lastIdle = false
@@ -204,6 +208,12 @@ class MusicMirrorService : Service(),
             Log.w("MusicMirrorService", "startForeground refused", e)
             stopSelf()
         }
+    }
+
+    private fun currentText(): String {
+        val track = nowPlaying.snapshot()
+        val label = track?.let { "${it.title} — ${it.artist}".trim(' ', '—') }
+        return if (label.isNullOrBlank()) lastStatus else "$label · $lastStatus"
     }
 
     private fun updateNotification(text: String) {

@@ -58,6 +58,7 @@ class MusicFragment : Fragment() {
     private var mirrorRunning = false
     private var lastFingerprint = ""
     private var lastCoverFingerprint = ""
+    private var lastGlassesLog = ""
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -126,9 +127,15 @@ class MusicFragment : Fragment() {
 
         btnCopyLog.setOnClickListener {
             val clipboard = requireActivity().getSystemService(android.content.Context.CLIPBOARD_SERVICE) as ClipboardManager
-            clipboard.setPrimaryClip(ClipData.newPlainText("MemOnly", statusText.text))
-            appendStatus(getString(R.string.msg_log_copied))
+            val glassesLog = UiState.logText(requireContext())
+            val copyNote = getString(R.string.msg_log_copied)
+            clipboard.setPrimaryClip(
+                ClipData.newPlainText("MemOnly", glassesLog + statusText.text + copyNote + "\n")
+            )
+            appendStatus(copyNote)
         }
+        lastGlassesLog = UiState.logText(requireContext())
+        statusText.text = lastGlassesLog
 
         updateAccessButton()
     }
@@ -189,6 +196,7 @@ class MusicFragment : Fragment() {
     private val ticker = object : Runnable {
         override fun run() {
             refreshNowPlaying()
+            refreshGlassesLog()
             handler.postDelayed(this, 1000L)
         }
     }
@@ -273,6 +281,15 @@ class MusicFragment : Fragment() {
 
     private fun appendStatus(line: String) {
         statusText.append(line + "\n")
+    }
+
+    /** Pull the lines the mirror service logged while we were away. */
+    private fun refreshGlassesLog() {
+        val text = UiState.logText(requireContext())
+        if (text != lastGlassesLog) {
+            lastGlassesLog = text
+            statusText.text = text
+        }
     }
 
     private fun toast(message: String) {
