@@ -24,15 +24,18 @@ class MainActivity : AppCompatActivity() {
 
         if (savedInstanceState == null) {
             show(CardioFragment(), R.id.tab_cardio)
+            GlassesHudClient.selectScreen(GmFrame.SCREEN_CARDIO)
         }
         tabs.setOnItemSelectedListener { item ->
             when (item.itemId) {
                 R.id.tab_cardio -> {
                     show(CardioFragment(), R.id.tab_cardio)
+                    GlassesHudClient.selectScreen(GmFrame.SCREEN_CARDIO)
                     true
                 }
                 R.id.tab_music -> {
                     show(MusicFragment(), R.id.tab_music)
+                    GlassesHudClient.selectScreen(GmFrame.SCREEN_MUSIC)
                     true
                 }
                 else -> false

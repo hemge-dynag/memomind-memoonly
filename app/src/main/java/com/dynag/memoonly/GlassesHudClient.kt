@@ -105,6 +105,20 @@ class GlassesHudClient(
         private const val SPP_CONNECT_TIMEOUT_MS = 12000
         // How long we wait for a running glasses plugin to announce readiness.
         private const val PLUGIN_WAIT_MS = 6000L
+
+        /** The active client, set by whichever service is connected. */
+        @Volatile
+        private var active: GlassesHudClient? = null
+
+        /**
+         * Ask the glasses to show [screen] ([GmFrame.SCREEN_CARDIO] or
+         * [GmFrame.SCREEN_MUSIC]) from the activity. Uses the connected client
+         * whichever service owns it; remembered so it is re-sent when a plugin
+         * becomes ready later.
+         */
+        fun selectScreen(screen: Int) {
+            active?.sendScreen(screen)
+        }
     }
 
     private val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -118,6 +132,15 @@ class GlassesHudClient(
     @Volatile
     var musicReady: Boolean = false
         private set
+
+    /** Set once the glasses answered at all (unified plugin): ready to steer. */
+    @Volatile
+    var pluginReady: Boolean = false
+        private set
+
+    /** Latest screen requested by the activity, re-sent once the plugin is up. */
+    @Volatile
+    private var pendingScreen: Int = -1
 
     private val handler = android.os.Handler(android.os.Looper.getMainLooper())
     private var cardioSentAt = 0L
@@ -418,9 +441,9 @@ class GlassesHudClient(
 
     private var pluginWaitAt = 0L
     private val pluginWait = Runnable {
-        if (cardioReady || musicReady || !ready) return@Runnable
+        if (pluginReady || cardioReady || musicReady || !ready) return@Runnable
         listener.onGlassesStatus(
-            "Aucun plugin (cardio/musique) n'a répondu. " +
+            "Le plugin MemOnly des lunettes n'a pas répondu. " +
                 "Trames envoyées : $framesSent, remontées reçues : $uplinksSeen."
         )
     }
@@ -446,6 +469,7 @@ class GlassesHudClient(
         ready = true
         cardioReady = false
         musicReady = false
+        pluginReady = false
         lastCardioBpm = 0
         mtu = SPP_MAX_FRAME_BYTES
         val addr = runCatching { device.address }.getOrNull()
@@ -453,6 +477,7 @@ class GlassesHudClient(
             prefs.edit().putString(PREF_GLASSES_ADDR, addr).apply()
         }
         listener.onGlassesStatus("Lunettes connectées en Classic SPP.")
+        active = this
         startSppReader(socket)
         armPluginWait()
         writeRaw(byteArrayOf(0xFA.toByte(), 0x00, 0x00, 0x09, 0x01, 0x01, 0x01, 0x01, 0x06))
@@ -697,6 +722,9 @@ class GlassesHudClient(
                     ready = false
                     cardioReady = false
                     musicReady = false
+                    if (active === this@GlassesHudClient) active = null
+                    pluginReady = false
+                    pendingScreen = -1
                     cardioPending = null
                     trackPending = null
                     handler.removeCallbacks(cardioFlush)
@@ -808,6 +836,8 @@ class GlassesHudClient(
             writeRaw(heartbeat)
             ready = true
             cardioReady = false
+            musicReady = false
+            pluginReady = false
             lastCardioBpm = 0
             // Confirmed glasses: remember them so future connects skip the scan.
             val confirmedAddress = runCatching { g.device.address }.getOrNull()
@@ -815,6 +845,7 @@ class GlassesHudClient(
                 prefs.edit().putString(PREF_GLASSES_ADDR, confirmedAddress).apply()
             }
             armPluginWait()
+            active = this@GlassesHudClient
             listener.onGlassesReady()
         }
 
@@ -895,6 +926,8 @@ class GlassesHudClient(
         }
 
         val payload = data ?: return
+        val wasReady = pluginReady
+        pluginReady = true
         if (channel == GmFrame.CH_CARDIO_UP && payload.size >= 2 && payload[1].toInt() == 1) {
             if (!cardioReady) {
                 cardioReady = true
@@ -902,6 +935,7 @@ class GlassesHudClient(
                 listener.onGlassesStatus("Plugin cardio des lunettes prêt.")
                 listener.onCardioReady()
             }
+            resendScreenOnceReady(wasReady)
             return
         }
         if (channel == GmFrame.CH_EVENT && payload.size >= 2) {
@@ -913,6 +947,7 @@ class GlassesHudClient(
                 listener.onGlassesStatus("Plugin musique des lunettes prêt.")
                 listener.onMusicReady()
             }
+            resendScreenOnceReady(wasReady)
             return
         }
         // Anything else on the plugin channel helps identify the payload layout.
@@ -920,6 +955,13 @@ class GlassesHudClient(
             val hex = payload.take(12).joinToString("") { "%02x".format(it) }
             listener.onGlassesStatus("Plugin event ch=0x%04x data=$hex".format(channel))
         }
+    }
+
+    /** Re-announce the last requested screen the first time a plugin answers. */
+    private fun resendScreenOnceReady(wasReady: Boolean) {
+        if (wasReady) return
+        val screen = pendingScreen
+        if (screen >= 0) sendNow(GmFrame.CH_SCREEN, GmFrame.screenSelect(screen))
     }
 
     // ---- Paired cardio plugin ------------------------------------------
@@ -1022,6 +1064,17 @@ class GlassesHudClient(
         sendTrackNow(GmFrame.trackIdle())
     }
 
+    /**
+     * Ask the unified glasses plugin to switch to [screen]
+     * ([GmFrame.SCREEN_CARDIO] or [GmFrame.SCREEN_MUSIC]). Remembered so it is
+     * re-sent as soon as the plugin reports ready.
+     */
+    fun sendScreen(screen: Int) {
+        pendingScreen = screen
+        if (!ready) return
+        sendNow(GmFrame.CH_SCREEN, GmFrame.screenSelect(screen))
+    }
+
     private fun sendNow(channel: Int, payload: ByteArray) {
         GmFrame.pluginMessage(
             eventId = nextEventId(),
@@ -1117,6 +1170,9 @@ class GlassesHudClient(
         ready = false
         cardioReady = false
         musicReady = false
+        if (active === this) active = null
+        pluginReady = false
+        pendingScreen = -1
         cardioPending = null
         trackPending = null
         linking = false

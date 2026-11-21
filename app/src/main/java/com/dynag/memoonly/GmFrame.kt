@@ -66,6 +66,17 @@ object GmFrame {
     const val CH_COVER: Int = 0x4D54
     const val CH_EVENT: Int = 0x4D56
 
+    // Unified MemOnly glasses plugin: picks which screen is drawn. The glasses
+    // cannot switch their foreground app over BLE, so the single plugin owns
+    // both screens and the phone tells it which one to show.
+    const val CH_SCREEN: Int = 0x4D57
+    const val SCREEN_CARDIO: Int = 0
+    const val SCREEN_MUSIC: Int = 1
+
+    /** Screen-selection payload: `[version, screen]`. */
+    fun screenSelect(screen: Int): ByteArray =
+        byteArrayOf(PROTOCOL_VERSION.toByte(), (screen and 0xFF).toByte())
+
     const val PROTOCOL_VERSION: Int = 1
 
     const val TRACK_CMD_IDLE: Int = 0
