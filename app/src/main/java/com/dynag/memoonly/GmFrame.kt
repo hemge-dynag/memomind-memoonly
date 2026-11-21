@@ -92,6 +92,10 @@ object GmFrame {
     const val TRACK_CMD_IDLE: Int = 0
     const val TRACK_CMD_META: Int = 1
     const val TRACK_CMD_PROGRESS: Int = 2
+    const val TRACK_CMD_META_MIN: Int = 3
+
+    /** Largest plugin payload the glasses HUD renders in one frame. */
+    const val MAX_PAYLOAD: Int = 32
 
     const val EVENT_TOGGLE: Int = 1
 
@@ -328,8 +332,14 @@ object GmFrame {
     /**
      * TRACK META:
      *   [ver][cmd][trackId:u32][durationMs:u32][positionMs:u32][playing:u8]
-     *     [titleLen:u8][artistLen:u8][title utf8][artist utf8]
+     *     [titleLen:u8][title utf8][artistLen:u8][artist utf8]
      * Lengths are byte counts after UTF-8 encoding; the glasses clamp them.
+     *
+     * The glasses only render one 32-byte plugin payload at a time, so when the
+     * full layout is too long this falls back to the compact
+     * [TRACK_CMD_META_MIN] layout: `[ver][cmd][trackId:u32][playing:u8]
+     * [titleLen:u8][title][artistLen:u8][artist]` with title and artist cut to
+     * fit. Duration/position are dropped there; progress arrives separately.
      */
     fun trackMeta(
         trackId: Int,
@@ -343,17 +353,41 @@ object GmFrame {
         val artistBytes = artist.toByteArray(Charsets.UTF_8)
         val tLen = minOf(titleBytes.size, 255)
         val aLen = minOf(artistBytes.size, 255)
-        val out = ByteArray(18 + tLen + aLen)
+        if (18 + tLen + aLen <= MAX_PAYLOAD) {
+            val out = ByteArray(18 + tLen + aLen)
+            out[0] = PROTOCOL_VERSION.toByte()
+            out[1] = TRACK_CMD_META.toByte()
+            putU32(out, 2, trackId)
+            putU32(out, 6, durationMs.coerceIn(0L, 0xFFFFFFFFL).toInt())
+            putU32(out, 10, positionMs.coerceIn(0L, 0xFFFFFFFFL).toInt())
+            out[14] = if (playing) 1 else 0
+            out[15] = tLen.toByte()
+            System.arraycopy(titleBytes, 0, out, 16, tLen)
+            out[17 + tLen] = aLen.toByte()
+            System.arraycopy(artistBytes, 0, out, 18 + tLen, aLen)
+            return out
+        }
+        var miniTitle = minOf(tLen, MAX_PAYLOAD - 11)
+        var miniArtist = minOf(aLen, MAX_PAYLOAD - 11 - miniTitle)
+        if (miniArtist < aLen && miniTitle > 6) {
+            miniTitle = minOf(tLen, (MAX_PAYLOAD - 11) / 2 + 2)
+            miniArtist = minOf(aLen, MAX_PAYLOAD - 11 - miniTitle)
+        }
+        while (miniTitle > 6 &&
+            (titleBytes[miniTitle - 1].toInt() and 0xC0) == 0x80
+        ) miniTitle--
+        while (miniArtist > 0 &&
+            (artistBytes[miniArtist - 1].toInt() and 0xC0) == 0x80
+        ) miniArtist--
+        val out = ByteArray(11 + miniTitle + miniArtist)
         out[0] = PROTOCOL_VERSION.toByte()
-        out[1] = TRACK_CMD_META.toByte()
+        out[1] = TRACK_CMD_META_MIN.toByte()
         putU32(out, 2, trackId)
-        putU32(out, 6, durationMs.coerceIn(0L, 0xFFFFFFFFL).toInt())
-        putU32(out, 10, positionMs.coerceIn(0L, 0xFFFFFFFFL).toInt())
-        out[14] = if (playing) 1 else 0
-        out[15] = tLen.toByte()
-        System.arraycopy(titleBytes, 0, out, 16, tLen)
-        out[17 + tLen] = aLen.toByte()
-        System.arraycopy(artistBytes, 0, out, 18 + tLen, aLen)
+        out[6] = if (playing) 1 else 0
+        out[7] = miniTitle.toByte()
+        System.arraycopy(titleBytes, 0, out, 8, miniTitle)
+        out[8 + miniTitle] = miniArtist.toByte()
+        System.arraycopy(artistBytes, 0, out, 9 + miniTitle, miniArtist)
         return out
     }
 
