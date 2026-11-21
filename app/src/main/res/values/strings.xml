@@ -98,6 +98,7 @@
     <string name="glasses_detail_with_addr">Lunettes connectées (%1$s)</string>
     <string name="glasses_detail_linked">Liaison active</string>
     <string name="btn_connect_glasses">Connecter les lunettes</string>
+    <string name="btn_glasses_connected">Lunettes connectées</string>
     <string name="btn_forget_glasses">Oublier les lunettes</string>
     <string name="config_auto_connect">Connexion automatique au démarrage</string>
     <string name="log_clear">Effacer</string>

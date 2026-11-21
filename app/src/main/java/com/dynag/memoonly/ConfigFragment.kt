@@ -135,6 +135,11 @@ class ConfigFragment : Fragment() {
                 if (linked) R.color.ok else R.color.text_secondary
             )
         )
+        // The button tells the outcome at a glance: once the link is up it
+        // reads "Lunettes connectées" instead of inviting a new connection.
+        b.btnConnect.setText(
+            if (linked) R.string.btn_glasses_connected else R.string.btn_connect_glasses
+        )
         b.linkDetailText.text = when {
             addr.isNullOrBlank() && linked -> getString(R.string.glasses_detail_linked)
             addr.isNullOrBlank() -> getString(R.string.glasses_detail_none)

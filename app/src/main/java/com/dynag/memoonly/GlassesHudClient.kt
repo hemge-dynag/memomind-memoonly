@@ -127,9 +127,25 @@ class GlassesHudClient(
             journalSink = sink
         }
 
+        /**
+         * Last journal lines, kept in memory so a screen can show the recent
+         * history the instant it opens (the persisted log may be empty when
+         * the app was just reinstalled).
+         */
+        private const val RECENT_MAX = 200
+        private val recent = ArrayDeque<String>()
+
+        fun recentLines(): List<String> = synchronized(recent) { recent.toList() }
+
         /** Route a line to both the owning listener and the shared journal. */
         internal fun journal(listener: Listener, message: String) {
             listener.onGlassesStatus(message)
+            val stamp = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US)
+                .format(java.util.Date())
+            synchronized(recent) {
+                recent.addLast("$stamp $message")
+                while (recent.size > RECENT_MAX) recent.removeFirst()
+            }
             journalSink?.invoke(message)
         }
 
@@ -144,7 +160,10 @@ class GlassesHudClient(
         }
 
         /** True while any client holds a live glasses link. */
-        fun isLinked(): Boolean = (active?.isReady == true) || (active?.cardioReady == true)
+        fun isLinked(): Boolean = active?.isReady == true
+
+        /** True once the glasses side actually answered (plugin ready). */
+        fun isPluginLive(): Boolean = (active?.cardioReady == true) || (active?.musicReady == true)
 
         /** Address of the glasses already picked, or null. */
         fun savedAddress(context: Context): String? =
@@ -177,6 +196,36 @@ class GlassesHudClient(
     /** Drop this client's link, e.g. before a fresh connect. */
     fun closeLink() {
         disconnect()
+    }
+
+    /**
+     * Open the link right away without waiting for a nearby scan, so the
+     * Config tab gets an answer at once: a remembered address is used
+     * directly, and the picker is offered the moment there is one, instead of
+     * only after the scan ran out.
+     */
+    @SuppressLint("MissingPermission")
+    fun startLink() {
+        val ad = adapter ?: run {
+            journal(listener, "Aucun adaptateur Bluetooth.")
+            return
+        }
+        if (!ad.isEnabled) {
+            journal(listener, "Bluetooth désactivé.")
+            return
+        }
+        val saved = prefs.getString(PREF_GLASSES_ADDR, null)
+        if (!saved.isNullOrBlank() && prefs.getBoolean(PREF_GLASSES_CONFIRMED, true)) {
+            connectToAddress(saved)
+            return
+        }
+        val bonded = bondedDevices()
+        if (bonded.isNotEmpty()) {
+            journal(listener, "Choisissez vos lunettes parmi les appareils appairés.")
+            listener.onGlassesChooser(bonded)
+            return
+        }
+        connect()
     }
 
     private val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)

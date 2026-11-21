@@ -90,7 +90,7 @@ class MusicMirrorService : Service(),
     private fun connectGlasses() {
         glassesLinked = true
         if (glasses.isReady) return
-        glasses.connect()
+        glasses.startLink()
     }
 
     override fun onGlassesStatus(message: String) {
