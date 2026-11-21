@@ -188,7 +188,7 @@ class CardioFragment : Fragment(),
                 if (jobRunning) {
                     CardioService.start(requireContext())
                 } else {
-                    toast(getString(R.string.msg_start_track_first))
+                    goToConfig()
                 }
             }
         }
@@ -202,6 +202,11 @@ class CardioFragment : Fragment(),
             clipboard.setPrimaryClip(ClipData.newPlainText("MemOnly log", statusText.text))
             appendStatus(getString(R.string.msg_log_copied))
         }
+    }
+
+    private fun goToConfig() {
+        toast(getString(R.string.msg_glasses_in_config))
+        (activity as? MainActivity)?.openConfigTab()
     }
 
     override fun onDestroyView() {

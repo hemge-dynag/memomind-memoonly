@@ -232,6 +232,7 @@ class CardioService : Service(),
 
     override fun onLocationStatus(message: String) {
         Log.i(TAG, message)
+        UiState.log(this, message)
     }
 
     override fun onMetrics(
@@ -256,6 +257,7 @@ class CardioService : Service(),
 
     override fun onGlassesStatus(message: String) {
         Log.i(TAG, message)
+        UiState.log(this, message)
     }
 
     override fun onGlassesReady() {
@@ -284,13 +286,17 @@ class CardioService : Service(),
     }
 
     override fun onGlassesChooser(devices: List<Pair<String, String>>) {
-        Log.i(TAG, "Chooser requested in service, ignoring")
+        // Picking the glasses belongs to the config tab; the service only says
+        // so, instead of leaving the link attempt silent.
+        Log.i(TAG, "Chooser requested: ${devices.size} devices")
+        UiState.log(this, getString(R.string.msg_glasses_in_config))
     }
 
     // ---- HeartRateManager.Listener --------------------------------------
 
     override fun onSensorStatus(message: String) {
         Log.i(TAG, message)
+        UiState.log(this, message)
     }
 
     override fun onSensorsDiscovered(sensors: List<BleSensor>) {

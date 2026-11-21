@@ -87,4 +87,22 @@
     <string name="msg_mirror_stopped">Miroir arrêté.</string>
     <string name="msg_start_mirror_first">Démarrez le miroir pour connecter les lunettes.</string>
     <string name="msg_glasses_connecting">Connexion aux lunettes…</string>
+
+    <!-- Config tab -->
+    <string name="tab_config">Config</string>
+    <string name="section_glasses">Lunettes MemoMind</string>
+    <string name="glasses_state_idle">Lunettes : non connectées</string>
+    <string name="glasses_state_connected">Lunettes : connectées</string>
+    <string name="glasses_detail_none">Aucune lunette sélectionnée. Connectez-les une seule fois ici.</string>
+    <string name="glasses_detail_saved">Lunettes enregistrées : %1$s</string>
+    <string name="glasses_detail_with_addr">Lunettes connectées (%1$s)</string>
+    <string name="glasses_detail_linked">Liaison active</string>
+    <string name="btn_connect_glasses">Connecter les lunettes</string>
+    <string name="btn_forget_glasses">Oublier les lunettes</string>
+    <string name="config_auto_connect">Connexion automatique au démarrage</string>
+    <string name="log_clear">Effacer</string>
+    <string name="msg_forgot_glasses">Lunettes oubliées. Connectez-les à nouveau.</string>
+    <string name="msg_glasses_chosen">Lunettes choisies : %1$s</string>
+    <string name="msg_no_bonded_glasses">Aucune lunette appairée. Appairez-les d\'abord dans les réglages Bluetooth du téléphone.</string>
+    <string name="msg_glasses_in_config">Choisissez et connectez les lunettes une seule fois dans l\'onglet Config.</string>
 </resources>

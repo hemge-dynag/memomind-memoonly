@@ -63,10 +63,13 @@ class MusicMirrorService : Service(),
             }
             ACTION_CONNECT -> {
                 // Only reach for the glasses, never for the player: this is the
-                // "Connecter les lunettes" button of the music tab.
+                // "Connecter les lunettes" button of the config tab, and the
+                // single connection the whole app shares.
                 startAsForeground("Miroir actif")
                 idleConnected = true
                 connectGlasses()
+                handler.removeCallbacks(ticker)
+                handler.post(ticker)
             }
             ACTION_STOP -> stopSelf()
             else -> startAsForeground("Miroir actif")
@@ -126,7 +129,9 @@ class MusicMirrorService : Service(),
     }
 
     override fun onGlassesChooser(devices: List<Pair<String, String>>) {
-        // No foreground UI here; the activity drives the first pairing.
+        // No foreground UI here; the config tab drives the first pairing, but
+        // say so instead of failing silently.
+        UiState.log(this, getString(R.string.msg_glasses_in_config))
     }
 
     // ---- polling loop --------------------------------------------------

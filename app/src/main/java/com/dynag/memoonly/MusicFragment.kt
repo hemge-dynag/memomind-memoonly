@@ -126,11 +126,10 @@ class MusicFragment : Fragment() {
                 if (mirrorRunning) {
                     MusicMirrorService.start(requireContext())
                 } else {
-                    // Link to the glasses without starting the mirror: a
-                    // mirror started from here would stop at once outside a
-                    // player, and re-ask for the device.
-                    MusicMirrorService.connectOnly(requireContext())
-                    appendStatus(getString(R.string.msg_glasses_connecting))
+                    // One connection for the whole app lives in the config
+                    // tab; this button only takes the user there.
+                    toast(getString(R.string.msg_glasses_in_config))
+                    (activity as? MainActivity)?.openConfigTab()
                 }
             }
         }

@@ -5,6 +5,10 @@
         android:icon="@drawable/ic_tab_cardio"
         android:title="@string/tab_cardio" />
     <item
+        android:id="@+id/tab_config"
+        android:icon="@drawable/ic_tab_config"
+        android:title="@string/tab_config" />
+    <item
         android:id="@+id/tab_music"
         android:icon="@drawable/ic_tab_music"
         android:title="@string/tab_music" />
