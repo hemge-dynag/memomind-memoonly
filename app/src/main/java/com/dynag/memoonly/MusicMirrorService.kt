@@ -13,6 +13,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.util.Log
 import androidx.core.app.NotificationCompat
 
 /**
@@ -186,14 +187,22 @@ class MusicMirrorService : Service(),
             channel.setShowBadge(false)
             manager.createNotificationChannel(channel)
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(
-                NOTIF_ID,
-                buildNotification(text),
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
-            )
-        } else {
-            startForeground(NOTIF_ID, buildNotification(text))
+        val notification = buildNotification(text)
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(
+                    NOTIF_ID,
+                    notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
+                )
+            } else {
+                startForeground(NOTIF_ID, notification)
+            }
+        } catch (e: Exception) {
+            // Never let a foreground-start refusal take the whole app down
+            // (e.g. restricted FGS type on a given OEM build).
+            Log.w("MusicMirrorService", "startForeground refused", e)
+            stopSelf()
         }
     }
 
