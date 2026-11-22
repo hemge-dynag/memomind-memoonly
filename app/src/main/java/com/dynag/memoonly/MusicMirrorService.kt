@@ -72,6 +72,7 @@ class MusicMirrorService : Service(),
                 handler.post(ticker)
             }
             ACTION_STOP -> stopSelf()
+            ACTION_YIELD -> yieldToOfficial()
             else -> startAsForeground("Miroir actif")
         }
         return START_NOT_STICKY
@@ -109,7 +110,21 @@ class MusicMirrorService : Service(),
     }
 
     override fun onGlassesDisconnected() {
-        // The client retries on its own; the ticker keeps polling.
+        // The client retries on its own; the ticker keeps polling. Nothing new
+        // is opened here, so a link released on purpose stays released.
+        glassesLinked = false
+    }
+
+    /**
+     * The user handed the glasses back to the official app: leave the single
+     * phone-facing link to it. The mirror stops too, so nothing reconnects.
+     */
+    private fun yieldToOfficial() {
+        glassesLinked = false
+        setMirrorPref(false)
+        handler.removeCallbacks(ticker)
+        glasses.releaseLink(getString(R.string.msg_yield_requested))
+        stopSelf()
     }
 
     override fun onMusicReady() {
@@ -284,6 +299,7 @@ class MusicMirrorService : Service(),
         const val ACTION_START = "com.dynag.memoonly.action.START_MIRROR"
         const val ACTION_CONNECT = "com.dynag.memoonly.action.CONNECT_GLASSES"
         const val ACTION_STOP = "com.dynag.memoonly.action.STOP_MIRROR"
+        const val ACTION_YIELD = "com.dynag.memoonly.action.YIELD_TO_OFFICIAL"
 
         fun start(context: Context) {
             val intent = Intent(context, MusicMirrorService::class.java)
@@ -314,6 +330,18 @@ class MusicMirrorService : Service(),
         fun stop(context: Context) {
             context.startService(
                 Intent(context, MusicMirrorService::class.java).setAction(ACTION_STOP)
+            )
+        }
+
+        /**
+         * Stop the mirror and hand the glasses to the official app. Cardio is
+         * told to stop tracking first so its stream cannot claim the link
+         * again right after we release it.
+         */
+        fun yieldFromGlasses(context: Context) {
+            CardioService.yield(context)
+            context.startService(
+                Intent(context, MusicMirrorService::class.java).setAction(ACTION_YIELD)
             )
         }
 

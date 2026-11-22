@@ -61,6 +61,26 @@
         android:textSize="13sp" />
 
     <Button
+        android:id="@+id/btnYield"
+        style="@style/Widget.Material3.Button.TextButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="start"
+        android:minHeight="0dp"
+        android:text="@string/btn_yield_glasses"
+        android:textColor="@color/text_secondary"
+        android:textSize="13sp" />
+
+    <TextView
+        android:id="@+id/autoConnectHint"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:text="@string/config_auto_connect_hint"
+        android:textColor="@color/text_secondary"
+        android:textSize="11sp" />
+
+    <Button
         android:id="@+id/btnForget"
         style="@style/Widget.Material3.Button.TextButton"
         android:layout_width="wrap_content"

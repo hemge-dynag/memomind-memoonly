@@ -137,6 +137,12 @@ class CardioFragment : Fragment(),
         averageBlock = view.findViewById(R.id.averageBlock)
         sportGroup = view.findViewById(R.id.sportGroup)
 
+        // A yield to the official app stopped the job: show it as stopped
+        // instead of offering "Arrêter le suivi" for a service that is gone.
+        jobRunning = CardioService.isRunning(requireContext())
+        btnTrack.text = getString(
+            if (jobRunning) R.string.btn_track_stop else R.string.btn_track
+        )
         sportGroup.check(R.id.sportRun)
         sportGroup.setOnCheckedChangeListener { _, checkedId ->
             noSpeed = checkedId == R.id.sportOther

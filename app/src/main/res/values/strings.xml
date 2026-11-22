@@ -106,4 +106,8 @@
     <string name="msg_glasses_chosen">Lunettes choisies : %1$s</string>
     <string name="msg_no_bonded_glasses">Aucune lunette appairée. Appairez-les d\'abord dans les réglages Bluetooth du téléphone.</string>
     <string name="msg_glasses_in_config">Choisissez et connectez les lunettes une seule fois dans l\'onglet Config.</string>
+    <string name="btn_yield_glasses">Rendre les lunettes à l\'app officielle</string>
+    <string name="msg_yield_requested">Lunettes rendues à l\'app officielle MemoMind. Rouvrez l\'app officielle pour les reprendre.</string>
+    <string name="msg_yield_done">Lunettes rendues à l\'app officielle MemoMind.</string>
+    <string name="config_auto_connect_hint">Laissez décoché pour ne pas prendre les lunettes à l\'app officielle au lancement.</string>
 </resources>

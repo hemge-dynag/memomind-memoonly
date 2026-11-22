@@ -66,6 +66,14 @@ class ConfigFragment : Fragment() {
             UiState.log(requireContext(), getString(R.string.msg_forgot_glasses))
             refreshState()
         }
+        b.btnYield.setOnClickListener {
+            // Hand the single phone-facing link back to the official app: both
+            // services stop and our socket closes, so the official app can
+            // reconnect. Nothing here reconnects until the user asks again.
+            GlassesHudClient.yieldToOfficial(requireContext())
+            UiState.log(requireContext(), getString(R.string.msg_yield_done))
+            refreshState()
+        }
         b.checkAutoConnect.isChecked = autoConnectEnabled(requireContext())
         b.checkAutoConnect.setOnCheckedChangeListener { _, checked ->
             prefs().edit().putBoolean(PREF_AUTO_CONNECT, checked).apply()
@@ -248,8 +256,13 @@ class ConfigFragment : Fragment() {
     companion object {
         const val PREF_AUTO_CONNECT = "auto_connect"
 
+        /**
+         * Off by default: the glasses expose one phone-facing link, so opening
+         * it at launch would take it away from the official app. The user opts
+         * in explicitly when they want MemOnly to grab the glasses on start.
+         */
         fun autoConnectEnabled(context: Context): Boolean =
             context.getSharedPreferences(UiState.PREFS, Context.MODE_PRIVATE)
-                .getBoolean(PREF_AUTO_CONNECT, true)
+                .getBoolean(PREF_AUTO_CONNECT, false)
     }
 }

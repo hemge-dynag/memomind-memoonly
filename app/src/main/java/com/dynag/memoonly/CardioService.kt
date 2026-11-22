@@ -358,6 +358,10 @@ class CardioService : Service(),
         const val EXTRA_NO_SPEED = "com.dynag.memoonly.extra.NO_SPEED"
 
         fun start(context: Context, noSpeed: Boolean = false) {
+            // The user took the glasses back for the official app: a start must
+            // not quietly grab them again. Reset via GlassesHudClient.connect().
+            if (GlassesHudClient.isYielded()) return
+            setRunning(context, true)
             val intent = Intent(context, CardioService::class.java)
                 .setAction(ACTION_START)
                 .putExtra(EXTRA_NO_SPEED, noSpeed)
@@ -369,10 +373,33 @@ class CardioService : Service(),
         }
 
         fun stop(context: Context) {
+            setRunning(context, false)
             context.startService(
                 Intent(context, CardioService::class.java).setAction(ACTION_STOP)
             )
         }
+
+        /**
+         * Stop tracking when the glasses are handed to the official app. Only
+         * an already running service is told, so a yield never starts one.
+         */
+        fun yield(context: Context) {
+            if (!isRunning(context)) return
+            context.startService(
+                Intent(context, CardioService::class.java).setAction(ACTION_STOP)
+            )
+        }
+
+        fun isRunning(context: Context): Boolean =
+            context.getSharedPreferences(UiState.PREFS, Context.MODE_PRIVATE)
+                .getBoolean(PREF_TRACKING_RUNNING, false)
+
+        private fun setRunning(context: Context, running: Boolean) {
+            context.getSharedPreferences(UiState.PREFS, Context.MODE_PRIVATE)
+                .edit().putBoolean(PREF_TRACKING_RUNNING, running).apply()
+        }
+
+        const val PREF_TRACKING_RUNNING = "tracking_running"
     }
 }
 

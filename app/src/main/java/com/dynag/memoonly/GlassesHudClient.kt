@@ -116,6 +116,15 @@ class GlassesHudClient(
         private var active: GlassesHudClient? = null
 
         /**
+         * Set when the user handed the glasses back to the official app. Until
+         * a fresh link is explicitly requested, [startLink] stays quiet instead
+         * of taking the single phone-facing link away from the official app
+         * again. App-wide: one link, so a yield is shared by both services.
+         */
+        @Volatile
+        private var yieldRequested = false
+
+        /**
          * Sink for every journal line, whichever client produced it. The
          * activity installs it so the Config tab shows one continuous log for
          * both the workout and the music mirror.
@@ -162,6 +171,12 @@ class GlassesHudClient(
         /** True while any client holds a live glasses link. */
         fun isLinked(): Boolean = active?.isReady == true
 
+        /**
+         * True once the glasses were handed to the official app. While set,
+         * nothing reconnects until an explicit [connect]/[connectToAddress].
+         */
+        fun isYielded(): Boolean = yieldRequested
+
         /** True once the glasses side actually answered (plugin ready). */
         fun isPluginLive(): Boolean = (active?.cardioReady == true) || (active?.musicReady == true)
 
@@ -175,6 +190,19 @@ class GlassesHudClient(
             val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             val addr = prefs.getString(PREF_GLASSES_ADDR, null)
             return !addr.isNullOrBlank() && prefs.getBoolean(PREF_GLASSES_CONFIRMED, true)
+        }
+
+        /**
+         * Hand the glasses back to the official app from anywhere: stop both
+         * services (so nothing reconnects behind the user's back) and release
+         * the link. The official app picks the glasses up again.
+         */
+        fun yieldToOfficial(context: Context) {
+            // Mark every client as yielded *before* the services stop, so a
+            // service being torn down cannot reopen the link on its way out.
+            yieldRequested = true
+            active?.releaseLink("Rendre les lunettes à l'app officielle demandé.")
+            MusicMirrorService.yieldFromGlasses(context)
         }
 
         /** Forget the remembered glasses so the next connect asks again. */
@@ -199,6 +227,36 @@ class GlassesHudClient(
     }
 
     /**
+     * Hand the glasses back to the official MemoMind app.
+     *
+     * The glasses expose a single phone-facing link, so while MemOnly holds it
+     * the official app cannot reach them. Saying goodbye to the plugin and
+     * closing our socket releases that link at once; the official app (still
+     * started, or started next) then reconnects on its own. No retry is
+     * scheduled: the user pressed this on purpose, and reconnecting on our side
+     * would take the link back from the official app.
+     */
+    fun releaseLink(reason: String) {
+        val wasConnected = ready || spp != null || gatt != null
+        if (wasConnected) yieldRequested = true
+        journal(listener, reason)
+        writeQueue.clear()
+        // Best-effort goodbye so the plugin clears its scene before the link
+        // goes to the official app.
+        if (wasConnected) sendGoodbye()
+        disconnect()
+        linkUp = false
+        listener.onGlassesDisconnected()
+        journal(listener, "Lunettes rendues à l'app officielle MemoMind.")
+    }
+
+    /** Clear the music line, then give the stack a moment to push the frame. */
+    private fun sendGoodbye() {
+        runCatching { sendIdle() }
+        runCatching { Thread.sleep(120) }
+    }
+
+    /**
      * Open the link right away without waiting for a nearby scan, so the
      * Config tab gets an answer at once: a remembered address is used
      * directly, and the picker is offered the moment there is one, instead of
@@ -206,6 +264,12 @@ class GlassesHudClient(
      */
     @SuppressLint("MissingPermission")
     fun startLink() {
+        if (yieldRequested) {
+            journal(listener,
+                "Lunettes rendues à l'app officielle : reconnexion dès que l'App officielle est fermée."
+            )
+            return
+        }
         val ad = adapter ?: run {
             journal(listener, "Aucun adaptateur Bluetooth.")
             return
@@ -330,6 +394,8 @@ class GlassesHudClient(
 
     @SuppressLint("MissingPermission")
     fun connect() {
+        // An explicit request takes the link back from the official app.
+        yieldRequested = false
         val ad = adapter
         if (ad == null) {
             journal(listener, "Aucun adaptateur Bluetooth.")
@@ -471,6 +537,8 @@ class GlassesHudClient(
      */
     @SuppressLint("MissingPermission")
     fun connectToAddress(address: String) {
+        // An explicit request takes the link back from the official app.
+        yieldRequested = false
         val ad = adapter ?: run {
             journal(listener, "Aucun adaptateur Bluetooth.")
             return
