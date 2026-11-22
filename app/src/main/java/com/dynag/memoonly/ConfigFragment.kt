@@ -40,10 +40,11 @@ class ConfigFragment : Fragment() {
         ActivityResultContracts.RequestMultiplePermissions()
     ) { result ->
         if (result.values.all { it }) {
-            connect()
+            pendingAction?.invoke()
         } else {
             toast(getString(R.string.msg_permissions_required))
         }
+        pendingAction = null
     }
 
     override fun onCreateView(
@@ -143,10 +144,18 @@ class ConfigFragment : Fragment() {
                 if (linked) R.color.ok else R.color.text_secondary
             )
         )
-        // The button tells the outcome at a glance: once the link is up it
-        // reads "Lunettes connectées" instead of inviting a new connection.
+        // One button, two jobs: it connects while the glasses are away and
+        // disconnects (link closed, tracking and mirror stopped) once they are
+        // up. The remembered address survives, so reconnecting is one tap.
         b.btnConnect.setText(
-            if (linked) R.string.btn_glasses_connected else R.string.btn_connect_glasses
+            if (linked) R.string.btn_disconnect_glasses else R.string.btn_connect_glasses
+        )
+        b.btnConnectHint.visibility = if (linked) View.VISIBLE else View.GONE
+        b.btnConnect.setBackgroundColor(
+            ContextCompat.getColor(
+                ctx,
+                if (linked) R.color.card_stroke else R.color.accent
+            )
         )
         b.linkDetailText.text = when {
             addr.isNullOrBlank() && linked -> getString(R.string.glasses_detail_linked)
@@ -157,8 +166,13 @@ class ConfigFragment : Fragment() {
     }
 
     private fun onConnectClicked() {
-        val ctx = requireContext()
-        val addr = GlassesHudClient.savedAddress(ctx)
+        val activity = activity as? MainActivity
+        if (GlassesHudClient.isLinked()) {
+            activity?.disconnectGlasses(getString(R.string.msg_glasses_disconnected))
+            refreshState()
+            return
+        }
+        val addr = GlassesHudClient.savedAddress(requireContext())
         if (addr.isNullOrBlank()) {
             pickGlasses()
         } else {
@@ -176,10 +190,7 @@ class ConfigFragment : Fragment() {
         // One link serves the whole app: the lightweight music client opens it
         // without starting a mirror, and the cardio service joins the same
         // client when a workout starts.
-        MusicMirrorService.connectOnly(ctx)
-        handler.postDelayed({
-            if (isAdded) GlassesHudClient.selectScreen(UiState.screen(requireContext()))
-        }, 1200L)
+        (activity as? MainActivity)?.connectGlasses() ?: MusicMirrorService.connectOnly(ctx)
     }
 
     /**

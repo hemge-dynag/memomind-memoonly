@@ -1,25 +1,153 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<!--
+  MemOnly shell: a top bar with the drawer button, the current app's fragment
+  below, and a closable drawer listing every app MemOnly hosts (workout, music)
+  plus the configuration. New MemoMind apps add one row here and one fragment,
+  without touching the rest of the shell.
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/bg"
-    android:orientation="vertical">
+    android:background="@color/bg">
 
-    <FrameLayout
-        android:id="@+id/fragmentHost"
+    <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1" />
+        android:layout_height="match_parent"
+        android:orientation="vertical">
 
-    <com.google.android.material.bottomnavigation.BottomNavigationView
-        android:id="@+id/bottomNav"
+        <LinearLayout
+            android:id="@+id/topBar"
+            android:layout_width="match_parent"
+            android:layout_height="60dp"
+            android:background="@color/bg_elevated"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="8dp"
+            android:paddingEnd="16dp">
+
+            <ImageButton
+                android:id="@+id/btnMenu"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/menu_open"
+                android:src="@drawable/ic_menu" />
+
+            <TextView
+                android:id="@+id/titleText"
+                style="@style/SectionTitle"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="4dp"
+                android:layout_weight="1"
+                android:letterSpacing="0.04"
+                android:text="@string/app_name"
+                android:textColor="@color/text_primary"
+                android:textSize="17sp" />
+
+            <TextView
+                android:id="@+id/glassesBadge"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="@drawable/bg_chip"
+                android:paddingStart="10dp"
+                android:paddingTop="4dp"
+                android:paddingEnd="10dp"
+                android:paddingBottom="4dp"
+                android:text="@string/badge_glasses_off"
+                android:textColor="@color/text_secondary"
+                android:textSize="11sp" />
+        </LinearLayout>
+
+        <FrameLayout
+            android:id="@+id/fragmentHost"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1" />
+    </LinearLayout>
+
+    <View
+        android:id="@+id/drawerScrim"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
+        android:layout_height="match_parent"
+        android:background="#99000000"
+        android:clickable="true"
+        android:focusable="true"
+        android:visibility="gone" />
+
+    <LinearLayout
+        android:id="@+id/drawerPanel"
+        android:layout_width="292dp"
+        android:layout_height="match_parent"
         android:background="@color/bg_elevated"
-        app:itemActiveIndicatorStyle="@style/MemoNavIndicator"
-        app:itemIconTint="@color/nav_item"
-        app:itemTextColor="@color/nav_item"
-        app:labelVisibilityMode="labeled"
-        app:menu="@menu/bottom_nav" />
-</LinearLayout>
+        android:clickable="true"
+        android:elevation="16dp"
+        android:focusable="true"
+        android:orientation="vertical"
+        android:padding="20dp"
+        android:visibility="gone">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:fontFamily="sans-serif-condensed"
+            android:text="@string/app_name"
+            android:textColor="@color/text_primary"
+            android:textSize="28sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:text="@string/menu_subtitle"
+            android:textColor="@color/text_secondary"
+            android:textSize="12sp" />
+
+        <TextView
+            style="@style/SectionTitle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="28dp"
+            android:text="@string/menu_section_apps" />
+
+        <Button
+            android:id="@+id/menuCardio"
+            style="@style/DrawerItem"
+            android:layout_marginTop="10dp"
+            android:text="@string/app_cardio" />
+
+        <Button
+            android:id="@+id/menuMusic"
+            style="@style/DrawerItem"
+            android:layout_marginTop="8dp"
+            android:text="@string/app_music" />
+
+        <TextView
+            style="@style/SectionTitle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:text="@string/menu_section_settings" />
+
+        <Button
+            android:id="@+id/menuConfig"
+            style="@style/DrawerItem"
+            android:layout_marginTop="10dp"
+            android:text="@string/app_config" />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1" />
+
+        <TextView
+            android:id="@+id/drawerVersion"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="@color/text_secondary"
+            android:textSize="11sp" />
+    </LinearLayout>
+</FrameLayout>

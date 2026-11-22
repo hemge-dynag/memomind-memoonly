@@ -66,9 +66,16 @@
     <string name="saved_sensor_unreachable">Capteur enregistré injoignable ; recherche d\'un nouveau capteur.</string>
     <string name="reconnecting_saved">Capteur enregistré injoignable ; nouvelle recherche.</string>
 
-    <!-- Tabs -->
-    <string name="tab_cardio">Cardio</string>
-    <string name="tab_music">Musique</string>
+    <!-- Drawer (every app MemOnly hosts, plus the configuration) -->
+    <string name="menu_open">Ouvrir le menu</string>
+    <string name="menu_subtitle">Lunettes MemoMind — applications</string>
+    <string name="menu_section_apps">Applications</string>
+    <string name="menu_section_settings">Réglages</string>
+    <string name="app_cardio">Cardio</string>
+    <string name="app_music">Musique</string>
+    <string name="app_config">Configuration</string>
+    <string name="badge_glasses_off">Lunettes hors ligne</string>
+    <string name="badge_glasses_on">Lunettes connectées</string>
 
     <!-- Music tab -->
     <string name="now_playing">En lecture</string>
@@ -89,7 +96,6 @@
     <string name="msg_glasses_connecting">Connexion aux lunettes…</string>
 
     <!-- Config tab -->
-    <string name="tab_config">Config</string>
     <string name="section_glasses">Lunettes MemoMind</string>
     <string name="glasses_state_idle">Lunettes : non connectées</string>
     <string name="glasses_state_connected">Lunettes : connectées</string>
@@ -99,6 +105,10 @@
     <string name="glasses_detail_linked">Liaison active</string>
     <string name="btn_connect_glasses">Connecter les lunettes</string>
     <string name="btn_glasses_connected">Lunettes connectées</string>
+    <string name="btn_disconnect_glasses">Déconnecter les lunettes</string>
+    <string name="config_disconnect_hint">La déconnexion ferme la liaison et arrête le suivi et le miroir. Les lunettes restent enregistrées : reconnectez-les d\'un geste.</string>
+    <string name="msg_glasses_disconnected">Lunettes déconnectées.</string>
+    <string name="msg_glasses_closed">Application fermée : lunettes libérées.</string>
     <string name="btn_forget_glasses">Oublier les lunettes</string>
     <string name="config_auto_connect">Connexion automatique au démarrage</string>
     <string name="log_clear">Effacer</string>

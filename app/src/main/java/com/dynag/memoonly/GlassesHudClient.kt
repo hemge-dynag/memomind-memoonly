@@ -137,6 +137,20 @@ class GlassesHudClient(
         }
 
         /**
+         * Listeners that need the link's lifecycle without owning a service:
+         * the activity uses one to keep its "glasses connected" badge true.
+         */
+        private val observers = java.util.concurrent.CopyOnWriteArrayList<Listener>()
+
+        fun registerStatusListener(listener: Listener) {
+            if (!observers.contains(listener)) observers.add(listener)
+        }
+
+        fun unregisterStatusListener(listener: Listener) {
+            observers.remove(listener)
+        }
+
+        /**
          * Last journal lines, kept in memory so a screen can show the recent
          * history the instant it opens (the persisted log may be empty when
          * the app was just reinstalled).
@@ -156,6 +170,12 @@ class GlassesHudClient(
                 while (recent.size > RECENT_MAX) recent.removeFirst()
             }
             journalSink?.invoke(message)
+            fanOut { it.onGlassesStatus(message) }
+        }
+
+        /** Tell the shell listeners (the activity badge) without waking a service. */
+        private fun fanOut(event: (Listener) -> Unit) {
+            observers.forEach { runCatching { event(it) } }
         }
 
         /**
@@ -203,6 +223,21 @@ class GlassesHudClient(
             yieldRequested = true
             active?.releaseLink("Rendre les lunettes à l'app officielle demandé.")
             MusicMirrorService.yieldFromGlasses(context)
+        }
+
+        /**
+         * Close the link on purpose from the shell (app closed, or the config
+         * tab's disconnect button). Unlike [yieldToOfficial] this does not
+         * hand the glasses to the official app: the user simply stops using
+         * them here, and pressing "Connecter" takes the link back.
+         */
+        fun disconnectForGood(context: Context, reason: String) {
+            yieldRequested = true
+            active?.releaseLink(reason)
+                ?: run {
+                    journalSink?.invoke(reason)
+                    observers.forEach { runCatching { it.onGlassesDisconnected() } }
+                }
         }
 
         /** Forget the remembered glasses so the next connect asks again. */
@@ -677,6 +712,7 @@ class GlassesHudClient(
         writeRaw(byteArrayOf(0xFA.toByte(), 0x00, 0x00, 0x09, 0x01, 0x01, 0x01, 0x01, 0x06))
         writeBusy = false
         listener.onGlassesReady()
+        fanOut { it.onGlassesReady() }
     }
 
     /** Read the SPP byte stream and hand complete GM frames to the parser. */
@@ -745,6 +781,7 @@ class GlassesHudClient(
         // out of range, and re-picking them on every start would be noise.
         journal(listener, "Liaison des lunettes perdue.")
         listener.onGlassesDisconnected()
+        fanOut { it.onGlassesDisconnected() }
     }
 
     /** Close any previous handle, then start a fresh link to [device]. */
@@ -948,6 +985,7 @@ class GlassesHudClient(
                         journal(listener, "Services: ${advertisedServices.joinToString(", ")}")
                     }
                     listener.onGlassesDisconnected()
+                    fanOut { it.onGlassesDisconnected() }
                 }
             }
         }
@@ -1047,6 +1085,7 @@ class GlassesHudClient(
             armPluginWait()
             active = this@GlassesHudClient
             listener.onGlassesReady()
+            fanOut { it.onGlassesReady() }
         }
 
         override fun onCharacteristicWrite(
@@ -1135,6 +1174,7 @@ class GlassesHudClient(
                 cardioStreaming = false
                 journal(listener, "Plugin cardio des lunettes prêt.")
                 listener.onCardioReady()
+                fanOut { it.onCardioReady() }
             }
             resendScreenOnceReady(wasReady)
             return
@@ -1147,6 +1187,7 @@ class GlassesHudClient(
                 musicReady = true
                 journal(listener, "Plugin musique des lunettes prêt.")
                 listener.onMusicReady()
+                fanOut { it.onMusicReady() }
             }
             resendScreenOnceReady(wasReady)
             return
