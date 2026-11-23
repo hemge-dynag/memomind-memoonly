@@ -191,6 +191,13 @@ class MusicMirrorService : Service(),
                     artist = track.artist
                 )
             )
+            // The compact layout drops the duration for long titles, so send
+            // it on its own frame; without it the HUD stays at "0:00 / 0:00".
+            if (track.durationMs > 0L) {
+                glasses.sendTrackPayload(
+                    GmFrame.trackInfo(track.id, track.durationMs)
+                )
+            }
             updateNotification("${track.title} — ${track.artist}".trim(' ', '—'))
         } else {
             glasses.sendTrackPayload(
@@ -294,7 +301,10 @@ class MusicMirrorService : Service(),
         private const val PREF_RUNNING = "mirror_running"
         private const val NOTIF_ID = 42
         private const val TICK_MS = 1000L
-        private const val COVER_MAX_EDGE = 240
+        // 160 px keeps the LZ4 block inside the 8 KiB application payload of
+        // one plugin message (a 240 px cover decodes to 28 800 B and the
+        // compressed block could not fit a single delivery).
+        private const val COVER_MAX_EDGE = 160
 
         const val ACTION_START = "com.dynag.memoonly.action.START_MIRROR"
         const val ACTION_CONNECT = "com.dynag.memoonly.action.CONNECT_GLASSES"

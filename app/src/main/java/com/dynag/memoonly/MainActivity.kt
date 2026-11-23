@@ -201,7 +201,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun refreshDrawer() {
-        val accent = ContextCompat.getColor(this, R.color.accent)
+        // Sober shell: the selected row is drawn with a lighter border and a
+        // white label; the accent stays for the cardio measurement only.
+        val selectedStroke = ContextCompat.getColor(this, R.color.text_primary)
         val base = ContextCompat.getColor(this, R.color.card)
         val stroke = ContextCompat.getColor(this, R.color.card_stroke)
         listOf(
@@ -212,11 +214,11 @@ class MainActivity : AppCompatActivity() {
             val selected = screen == current
             if (button is MaterialButton) {
                 button.strokeColor = android.content.res.ColorStateList.valueOf(
-                    if (selected) accent else stroke
+                    if (selected) selectedStroke else stroke
                 )
                 button.backgroundTintList = android.content.res.ColorStateList.valueOf(base)
             }
-            button.setTextColor(if (selected) accent else ContextCompat.getColor(this, R.color.text_primary))
+            button.setTextColor(ContextCompat.getColor(this, R.color.text_primary))
         }
         findViewById<TextView>(R.id.drawerVersion).text = "MemOnly ${versionName()}"
     }

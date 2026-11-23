@@ -93,6 +93,7 @@ object GmFrame {
     const val TRACK_CMD_META: Int = 1
     const val TRACK_CMD_PROGRESS: Int = 2
     const val TRACK_CMD_META_MIN: Int = 3
+    const val TRACK_CMD_INFO: Int = 4
 
     /** Largest plugin payload the glasses HUD renders in one frame. */
     const val MAX_PAYLOAD: Int = 32
@@ -388,6 +389,23 @@ object GmFrame {
         System.arraycopy(titleBytes, 0, out, 8, miniTitle)
         out[8 + miniTitle] = miniArtist.toByte()
         System.arraycopy(artistBytes, 0, out, 9 + miniTitle, miniArtist)
+        return out
+    }
+
+    /**
+     * TRACK INFO: `[ver][cmd][trackId:u32][durationMs:u32]`.
+     *
+     * The 32-byte plugin payload cannot hold a long title/artist *and* the
+     * duration, so the compact META_MIN layout drops it. This 10-byte frame
+     * follows the metadata and carries the duration on its own; the glasses
+     * then render elapsed / total and a real progress bar.
+     */
+    fun trackInfo(trackId: Int, durationMs: Long): ByteArray {
+        val out = ByteArray(10)
+        out[0] = PROTOCOL_VERSION.toByte()
+        out[1] = TRACK_CMD_INFO.toByte()
+        putU32(out, 2, trackId)
+        putU32(out, 6, durationMs.coerceIn(0L, 0xFFFFFFFFL).toInt())
         return out
     }
 
