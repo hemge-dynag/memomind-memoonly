@@ -44,7 +44,6 @@ class MusicFragment : Fragment() {
     private lateinit var timeText: TextView
     private lateinit var statusText: TextView
     private lateinit var btnAccess: Button
-    private lateinit var btnGlasses: Button
     private lateinit var btnMirror: Button
     private lateinit var btnCopyLog: Button
     private lateinit var logHeader: View
@@ -93,7 +92,6 @@ class MusicFragment : Fragment() {
         timeText = view.findViewById(R.id.timeText)
         statusText = view.findViewById(R.id.statusText)
         btnAccess = view.findViewById(R.id.btnAccess)
-        btnGlasses = view.findViewById(R.id.btnGlasses)
         btnMirror = view.findViewById(R.id.btnMirror)
         btnCopyLog = view.findViewById(R.id.btnCopyLog)
         logHeader = view.findViewById(R.id.logHeader)
@@ -118,19 +116,6 @@ class MusicFragment : Fragment() {
             } else {
                 toast(getString(R.string.msg_access_required))
                 NowPlayingListener.openSettings(requireContext())
-            }
-        }
-
-        btnGlasses.setOnClickListener {
-            ensurePermissions {
-                if (mirrorRunning) {
-                    MusicMirrorService.start(requireContext())
-                } else {
-                    // One connection for the whole app lives in the config
-                    // tab; this button only takes the user there.
-                    toast(getString(R.string.msg_glasses_in_config))
-                    (activity as? MainActivity)?.openConfigTab()
-                }
             }
         }
 

@@ -54,7 +54,6 @@ class CardioFragment : Fragment(),
     private lateinit var zoneText: TextView
     private lateinit var statusText: TextView
     private lateinit var btnSensor: Button
-    private lateinit var btnGlasses: Button
     private lateinit var btnTrack: Button
     private lateinit var btnCopyLog: Button
     private lateinit var logHeader: View
@@ -125,7 +124,6 @@ class CardioFragment : Fragment(),
         zoneText = view.findViewById(R.id.zoneText)
         statusText = view.findViewById(R.id.statusText)
         btnSensor = view.findViewById(R.id.btnSensor)
-        btnGlasses = view.findViewById(R.id.btnGlasses)
         btnTrack = view.findViewById(R.id.btnTrack)
         btnCopyLog = view.findViewById(R.id.btnCopyLog)
         logHeader = view.findViewById(R.id.logHeader)
@@ -187,17 +185,6 @@ class CardioFragment : Fragment(),
             }
             true
         }
-        btnGlasses.setOnClickListener {
-            ensurePermissions {
-                // Connection itself lives in the foreground service; this
-                // button re-launches it (and reports if nothing is tracking).
-                if (jobRunning) {
-                    CardioService.start(requireContext())
-                } else {
-                    goToConfig()
-                }
-            }
-        }
         btnTrack.setOnClickListener {
             ensurePermissions {
                 if (jobRunning) stopJob() else startJob()
@@ -208,11 +195,6 @@ class CardioFragment : Fragment(),
             clipboard.setPrimaryClip(ClipData.newPlainText("MemOnly log", statusText.text))
             appendStatus(getString(R.string.msg_log_copied))
         }
-    }
-
-    private fun goToConfig() {
-        toast(getString(R.string.msg_glasses_in_config))
-        (activity as? MainActivity)?.openConfigTab()
     }
 
     override fun onDestroyView() {

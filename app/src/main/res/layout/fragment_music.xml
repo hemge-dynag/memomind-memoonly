@@ -88,14 +88,6 @@
             android:text="@string/btn_access" />
 
         <Button
-            android:id="@+id/btnGlasses"
-            style="@style/ActionButton"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:text="@string/btn_glasses" />
-
-        <Button
             android:id="@+id/btnMirror"
             style="@style/ActionButtonPrimary"
             android:layout_width="match_parent"
