@@ -39,6 +39,9 @@ class MusicMirrorService : Service(),
     private var lastCoverFingerprint = ""
     private var lastTrackId = 0
     private var lastIdle = false
+    /** Last progress second pushed; the HUD only shows whole seconds. */
+    private var lastProgressSec = -1L
+    private var lastProgressPlaying = false
     private var glassesLinked = false
     private var idleConnected = false
     private var lastStatus = "Miroir actif"
@@ -105,6 +108,7 @@ class MusicMirrorService : Service(),
         // Force a full refresh once the link comes up.
         lastFingerprint = ""
         lastCoverFingerprint = ""
+        lastProgressSec = -1L
         lastIdle = false
         pushSnapshot()
     }
@@ -130,6 +134,7 @@ class MusicMirrorService : Service(),
     override fun onMusicReady() {
         lastFingerprint = ""
         lastCoverFingerprint = ""
+        lastProgressSec = -1L
         lastIdle = false
         pushSnapshot()
     }
@@ -181,6 +186,7 @@ class MusicMirrorService : Service(),
         if (fingerprint != lastFingerprint) {
             lastFingerprint = fingerprint
             lastTrackId = track.id
+            lastProgressSec = -1L
             glasses.sendTrackNow(
                 GmFrame.trackMeta(
                     trackId = track.id,
@@ -200,9 +206,18 @@ class MusicMirrorService : Service(),
             }
             updateNotification("${track.title} — ${track.artist}".trim(' ', '—'))
         } else {
-            glasses.sendTrackPayload(
-                GmFrame.trackProgress(track.id, track.positionMs, track.playing)
-            )
+            // The glasses advance the position themselves between frames; a
+            // frame sent more often than the HUD can show (or one that lands
+            // slightly behind the plugin's own clock) makes the timer stall or
+            // step backwards. Only push when the displayed second changes.
+            val sec = track.positionMs / 1000L
+            if (sec != lastProgressSec || track.playing != lastProgressPlaying) {
+                lastProgressSec = sec
+                lastProgressPlaying = track.playing
+                glasses.sendTrackPayload(
+                    GmFrame.trackProgress(track.id, track.positionMs, track.playing)
+                )
+            }
         }
         if (coverChanged) {
             lastCoverFingerprint = fingerprint

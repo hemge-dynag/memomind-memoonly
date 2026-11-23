@@ -354,14 +354,26 @@ class GlassesHudClient(
     private var cardioStreaming = false
     private var lastCardioBpm = 0
     private var cardioPending: ByteArray? = null
+    /**
+     * The workout tracking frame (command 4) is not a heart-rate reading: it
+     * carries the timer, speed and distance. Sharing [cardioPending] let a
+     * throttled BPM reading overwrite a pending tracking frame (and the other
+     * way round) while the screen was off, which froze the timer and the
+     * speed on the HUD. Tracking therefore gets its own slot, always sent
+     * before a pending reading.
+     */
+    private var trackingPending: ByteArray? = null
 
     private var cardioFlushPosted = false
 
     private val cardioFlush = Runnable {
         cardioFlushPosted = false
-        val payload = cardioPending ?: return@Runnable
+        val tracking = trackingPending
+        val reading = cardioPending
+        trackingPending = null
         cardioPending = null
-        sendCardioPayload(payload)
+        if (tracking != null) sendCardioPayload(tracking, bypassThrottle = true)
+        if (reading != null) sendCardioPayload(reading, bypassThrottle = true)
     }
 
     private var trackSentAt = 0L
@@ -773,6 +785,7 @@ class GlassesHudClient(
         cardioReady = false
         musicReady = false
         cardioPending = null
+        trackingPending = null
         trackPending = null
         handler.removeCallbacks(cardioFlush)
         cardioFlushPosted = false
@@ -958,6 +971,7 @@ class GlassesHudClient(
                     pluginReady = false
                     pendingScreen = -1
                     cardioPending = null
+                    trackingPending = null
                     trackPending = null
                     handler.removeCallbacks(cardioFlush)
         cardioFlushPosted = false
@@ -1307,7 +1321,8 @@ class GlassesHudClient(
     ) {
         if (!cardioReady) return
         sendCardioPayload(
-            GmFrame.cardioTracking(active, elapsedMillis / 1000, speedKmh, distanceMeters, noSpeed)
+            GmFrame.cardioTracking(active, elapsedMillis / 1000, speedKmh, distanceMeters, noSpeed),
+            isTracking = true
         )
     }
 
@@ -1379,7 +1394,11 @@ class GlassesHudClient(
         ).forEach { enqueue(it) }
     }
 
-    private fun sendCardioPayload(payload: ByteArray, bypassThrottle: Boolean = false) {
+    private fun sendCardioPayload(
+        payload: ByteArray,
+        bypassThrottle: Boolean = false,
+        isTracking: Boolean = false
+    ) {
         if (!cardioReady) return
         val now = android.os.SystemClock.elapsedRealtime()
         val since = now - cardioSentAt
@@ -1387,7 +1406,7 @@ class GlassesHudClient(
             handler.removeCallbacks(cardioFlush)
             cardioFlushPosted = false
             cardioSentAt = now
-            cardioPending = null
+            if (isTracking) trackingPending = null else cardioPending = null
             GmFrame.pluginMessage(
                 eventId = nextEventId(),
                 channel = GmFrame.CH_CARDIO_DOWN,
@@ -1397,10 +1416,10 @@ class GlassesHudClient(
             return
         }
         if (since < CARDIO_PUSH_INTERVAL_MS) {
-            // Keep only the newest reading and schedule a single flush for the
-            // exact time the interval ends (a full-interval delay while frames
-            // keep arriving would starve the display forever).
-            cardioPending = payload
+            // Keep only the newest payload of each kind and schedule a single
+            // flush for the exact time the interval ends (a full-interval delay
+            // while frames keep arriving would starve the display forever).
+            if (isTracking) trackingPending = payload else cardioPending = payload
             if (!cardioFlushPosted) {
                 cardioFlushPosted = true
                 handler.postDelayed(cardioFlush, CARDIO_PUSH_INTERVAL_MS - since)
@@ -1408,7 +1427,7 @@ class GlassesHudClient(
             return
         }
         cardioSentAt = now
-        cardioPending = null
+        if (isTracking) trackingPending = null else cardioPending = null
         GmFrame.pluginMessage(
             eventId = nextEventId(),
             channel = GmFrame.CH_CARDIO_DOWN,
@@ -1489,6 +1508,7 @@ class GlassesHudClient(
         pluginReady = false
         pendingScreen = -1
         cardioPending = null
+        trackingPending = null
         trackPending = null
         linking = false
         linkCandidate = -1
